@@ -1,15 +1,18 @@
 import network
 import socket
-import utime
+import utime as time
 from machine import Pin, ADC
 import ujson
 import ntptime
-# import micropython-schedule as schedule
+import micropython-schedule as schedule
 # from typing_extensions import Dict, Any, Optional
 
 # Wi-Fi connection
 ssid: str = 'Pita'
 password: str = '***REMOVED***'
+
+#Pins
+soil_sensor: ADC = ADC(0)
 
 # Connect to WLAN
 wlan: network.WLAN = network.WLAN(network.STA_IF)
@@ -45,7 +48,7 @@ def sync_ntp() -> None:
 sync_ntp()
 
 # Schedule regular NTP sync (every 24 hours)
-schedule.every(24).hours.do(sync_ntp)
+# schedule.every(24).hours.do(sync_ntp)
 
 # Open socket
 addr: tuple = socket.getaddrinfo('0.0.0.0', 80)[0][-1]
@@ -54,9 +57,6 @@ s.bind(addr)
 s.listen(1)
 
 print('listening on', addr)
-
-# Setup ADC for soil moisture sensor
-soil_sensor: ADC = ADC(Pin(32))  # Adjust pin number as needed for your ESP32 setup
 
 # Persistent storage functions
 def save_data(filename: str, data: Dict[str, Any]) -> None:
@@ -173,4 +173,4 @@ while True:
         print('connection closed')
 
     # Run scheduled tasks
-    schedule.run_pending()
+#    schedule.run_pending()
