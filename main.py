@@ -96,8 +96,14 @@ async def handle_request(reader, writer):
     
     request = await reader.read(1024)
     request = request.decode()
-    
-    if request.startswith('GET /zones'):
+
+    content_type = 'application/json'
+    if request.startswith('GET / HTTP'):
+        # Serve the HTML file for the root route
+        with open('index.html', 'r') as f:
+            response = f.read()
+        content_type = 'text/html'
+    elif request.startswith('GET /zones'):
         # curl example: curl http://[ESP32_IP]/zones
         response = ujson.dumps({zone_id: {"name": zone["name"], "on_pin": zone["on_pin"].id(), "off_pin": zone["off_pin"].id()} for zone_id, zone in zones.items()})
     elif request.startswith('POST /zones'):
@@ -155,7 +161,7 @@ async def handle_request(reader, writer):
     else:
         response = "Not Found"
 
-    writer.write('HTTP/1.0 200 OK\r\nContent-type: application/json\r\n\r\n')
+    writer.write(f'HTTP/1.0 200 OK\r\nContent-type: {content_type}\r\n\r\n')
     writer.write(response)
     await writer.drain()
     writer.close()
