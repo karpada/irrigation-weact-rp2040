@@ -4,8 +4,7 @@ import utime as time
 from machine import Pin, ADC
 import ujson
 import ntptime
-import micropython
-#import uasyncio as asyncio
+import uasyncio as asyncio
 
 # Wi-Fi connection
 ssid: str = 'Pita'
