@@ -1,15 +1,15 @@
 import network
 import socket
-import time
+import utime
 from machine import Pin, ADC
 import ujson
 import ntptime
-import schedule
-from typing import Dict, Any, Optional
+# import micropython-schedule as schedule
+# from typing_extensions import Dict, Any, Optional
 
 # Wi-Fi connection
-ssid: str = 'YourWiFiSSID'
-password: str = 'YourWiFiPassword'
+ssid: str = 'Pita'
+password: str = '***REMOVED***'
 
 # Connect to WLAN
 wlan: network.WLAN = network.WLAN(network.STA_IF)
