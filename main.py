@@ -60,17 +60,24 @@ zones: dict = load_data('zones.json')
 irrigation_schedules: dict = load_data('schedules.json')
 
 # Initialize pins for zones
-for zone_id, zone in zones.items():
-    zone['pin'] = Pin(zone['pin'], Pin.OUT)
+def initialize_zone_pins():
+    for zone_id, zone in zones.items():
+        zone['on_pin'] = Pin(zone['on_pin'], Pin.OUT)
+        zone['off_pin'] = Pin(zone['off_pin'], Pin.OUT)
+
+initialize_zone_pins()
 
 # Helper functions
 def control_watering(zone_id: str, start: bool) -> None:
-    zone = zones.get(zone_id)
-    if zone:
-        zone['pin'].value(1 if start else 0)
-        time.sleep(0.1)  # Short delay to ensure the signal is received
-        zone['pin'].value(0)
-        print(f"{'Started' if start else 'Stopped'} watering zone {zone_id}")
+    if zone_id not in zones:
+        print(f"Zone {zone_id} not found")
+        return
+    zone = zones[zone_id]
+    print(f"{'Started' if start else 'Stopped'} watering zone {zone_id}")
+    pin = zone['on_pin'] if start else zone['off_pin']
+    pin.value(1)
+    time.sleep(0.06)
+    pin.value(0)
 
 def read_soil_moisture() -> int:
     return soil_sensor.read()
@@ -91,45 +98,58 @@ async def handle_request(reader, writer):
     request = request.decode()
     
     if request.startswith('GET /zones'):
-        response = ujson.dumps({zone_id: {"name": zone["name"], "pin": zone["pin"].id()} for zone_id, zone in zones.items()})
+        # curl example: curl http://[ESP32_IP]/zones
+        response = ujson.dumps({zone_id: {"name": zone["name"], "on_pin": zone["on_pin"].id(), "off_pin": zone["off_pin"].id()} for zone_id, zone in zones.items()})
     elif request.startswith('POST /zones'):
+        # curl example: curl -X POST -H "Content-Type: application/json" -d '{"1": {"name":"Front Lawn", "on_pin":12, "off_pin":13}, "2": {"name":"Back Yard", "on_pin":14, "off_pin":15}}' http://[ESP32_IP]/zones
         body = parse_request_body(request)
-        if body and 'name' in body and 'pin' in body:
-            new_zone = {
-                "name": body['name'],
-                "pin": Pin(body['pin'], Pin.OUT)
-            }
-            zone_id = str(max([int(id) for id in zones.keys()] + [0]) + 1)
-            zones[zone_id] = new_zone
-            save_data('zones.json', {zone_id: {"name": zone["name"], "pin": zone["pin"].id()} for zone_id, zone in zones.items()})
-            response = ujson.dumps({zone_id: {"name": new_zone["name"], "pin": new_zone["pin"].id()}})
+        if body and isinstance(body, dict):
+            new_zones = {}
+            for zone_id, zone_data in body.items():
+                if 'name' in zone_data and 'on_pin' in zone_data and 'off_pin' in zone_data:
+                    new_zones[zone_id] = {
+                        "name": zone_data['name'],
+                        "on_pin": zone_data['on_pin'],
+                        "off_pin": zone_data['off_pin']
+                    }
+            zones = new_zones
+            save_data('zones.json', zones)
+            initialize_zone_pins()
+            response = ujson.dumps(zones)
         else:
             response = "Bad Request"
     elif request.startswith('GET /schedules'):
+        # curl example: curl http://[ESP32_IP]/schedules
         response = ujson.dumps(irrigation_schedules)
     elif request.startswith('POST /schedules'):
+        # curl example: curl -X POST -H "Content-Type: application/json" -d '{"1": {"zone_id":"1", "start_time":"06:00", "duration_ms":300000, "expiry":1735689600}, "2": {"zone_id":"2", "start_time":"18:00", "duration_ms":600000, "expiry":1735689600}}' http://[ESP32_IP]/schedules
         body = parse_request_body(request)
-        if body and 'zone_id' in body and 'start_time' in body and 'duration_ms' in body:
-            new_schedule = {
-                "zone_id": body['zone_id'],
-                "start_time": body['start_time'],
-                "duration_ms": body['duration_ms']
-            }
-            schedule_id = str(max([int(id) for id in irrigation_schedules.keys()] + [0]) + 1)
-            irrigation_schedules[schedule_id] = new_schedule
+        if body and isinstance(body, dict):
+            new_schedules = {}
+            for schedule_id, schedule_data in body.items():
+                if all(key in schedule_data for key in ['zone_id', 'start_time', 'duration_ms', 'expiry']):
+                    new_schedules[schedule_id] = schedule_data
+            irrigation_schedules = new_schedules
             save_data('schedules.json', irrigation_schedules)
             
-            # Schedule the new irrigation task
-            hour, minute = map(int, body['start_time'].split(':'))
-            asyncio.create_task(schedule_irrigation(schedule_id, hour, minute, body['zone_id'], body['duration_ms']))
+            # Cancel all existing irrigation tasks and schedule new ones
+            for task in asyncio.all_tasks():
+                if task.get_name().startswith('irrigation_'):
+                    task.cancel()
             
-            response = ujson.dumps({schedule_id: new_schedule})
+            for schedule_id, schedule in irrigation_schedules.items():
+                hour, minute = map(int, schedule['start_time'].split(':'))
+                asyncio.create_task(schedule_irrigation(schedule_id, hour, minute, schedule['zone_id'], schedule['duration_ms'], schedule['expiry']), name=f'irrigation_{schedule_id}')
+            
+            response = ujson.dumps(irrigation_schedules)
         else:
             response = "Bad Request"
     elif request.startswith('GET /sensor'):
+        # curl example: curl http://[ESP32_IP]/sensor
         moisture = read_soil_moisture()
         response = ujson.dumps({"soil_moisture": moisture})
     elif request.startswith('GET /time'):
+        # curl example: curl http://[ESP32_IP]/time
         current_time_ms: int = time.time() * 1000  # Convert to milliseconds
         response = ujson.dumps({"time_ms": current_time_ms})
     else:
@@ -141,9 +161,14 @@ async def handle_request(reader, writer):
     writer.close()
     await writer.wait_closed()
 
-async def schedule_irrigation(schedule_id, hour, minute, zone_id, duration_ms):
+async def schedule_irrigation(schedule_id, hour, minute, zone_id, duration_ms, expiry):
     while True:
         now = time.localtime()
+        if time.time() > expiry:
+            print(f"Schedule {schedule_id} has expired")
+            del irrigation_schedules[schedule_id]
+            save_data('schedules.json', irrigation_schedules)
+            break
         seconds_until = ((hour - now[3]) * 3600 + (minute - now[4]) * 60 - now[5]) % 86400
         await asyncio.sleep(seconds_until)
         control_watering(zone_id, True)
@@ -160,7 +185,7 @@ async def main():
     # Schedule existing irrigation tasks
     for schedule_id, schedule in irrigation_schedules.items():
         hour, minute = map(int, schedule['start_time'].split(':'))
-        asyncio.create_task(schedule_irrigation(schedule_id, hour, minute, schedule['zone_id'], schedule['duration_ms']))
+        asyncio.create_task(schedule_irrigation(schedule_id, hour, minute, schedule['zone_id'], schedule['duration_ms'], schedule['expiry']), name=f'irrigation_{schedule_id}')
     
     server = await asyncio.start_server(handle_request, "0.0.0.0", 80)
     print('Server listening on port 80')
