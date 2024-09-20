@@ -85,24 +85,14 @@ def parse_request_body(request: str) -> dict:
     except:
         return None
     
-async def write_file(filename: str, writer) -> None:
+async def serve_file(filename: str, writer) -> None:
     try:
         with open(filename, 'r') as f:
-            writer.write(b'Transfer-Encoding: chunked\r\n\r\n')
-
             while True:
                 chunk = f.read(1024)  # Read 1KB at a time
                 if not chunk:
                     break
-                chunk_size = len(chunk)
-                print(f"Sending chunk of size {chunk_size}")
-                # writer.write(f'{chunk_size:X}\r\n'.encode())
                 writer.write(chunk)
-                writer.write(b'\r\n')
-                await writer.drain()
-
-            # writer.write(b'0\r\n\r\n')  # End of chunked transfer
-            await writer.drain()
     except Exception as e:
         print(f"Error serving file [{filename}]: {e}")
 
@@ -176,13 +166,12 @@ async def handle_request(reader, writer):
     else:
         response = "Not Found"
 
-    writer.write(f'HTTP/1.0 200 OK\r\nContent-type: {content_type}\r\n')
+    writer.write(f'HTTP/1.0 200 OK\r\nContent-type: {content_type}\r\n\r\n')
     if filename:
-        await write_file(filename, writer)
+        await serve_file(filename, writer)
     else:
-        writer.write('\r\n')
         writer.write(response)
-        await writer.drain()
+    await writer.drain()
     writer.close()
     await writer.wait_closed()
 
