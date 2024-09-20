@@ -84,6 +84,27 @@ def parse_request_body(request: str) -> dict:
         return ujson.loads(request[json_start:])
     except:
         return None
+    
+async def write_file(filename: str, writer) -> None:
+    try:
+        with open(filename, 'r') as f:
+            writer.write(b'Transfer-Encoding: chunked\r\n\r\n')
+
+            while True:
+                chunk = f.read(1024)  # Read 1KB at a time
+                if not chunk:
+                    break
+                chunk_size = len(chunk)
+                print(f"Sending chunk of size {chunk_size}")
+                # writer.write(f'{chunk_size:X}\r\n'.encode())
+                writer.write(chunk)
+                writer.write(b'\r\n')
+                await writer.drain()
+
+            # writer.write(b'0\r\n\r\n')  # End of chunked transfer
+            await writer.drain()
+    except Exception as e:
+        print(f"Error serving file [{filename}]: {e}")
 
 async def handle_request(reader, writer):
     global zones, irrigation_schedules
@@ -92,11 +113,11 @@ async def handle_request(reader, writer):
     request = request.decode()
 
     content_type = 'application/json'
+    filename = None
     print(f"Handling request: {request}")
     if request.startswith('GET / HTTP'):
         # Serve the HTML file for the root route
-        with open('index.html', 'r') as f:
-            response = f.read()
+        filename = 'index.html'
         content_type = 'text/html'
     elif request.startswith('GET /zones'):
         # curl example: curl http://[ESP32_IP]/zones
@@ -155,9 +176,13 @@ async def handle_request(reader, writer):
     else:
         response = "Not Found"
 
-    writer.write(f'HTTP/1.0 200 OK\r\nContent-type: {content_type}\r\n\r\n')
-    writer.write(response)
-    await writer.drain()
+    writer.write(f'HTTP/1.0 200 OK\r\nContent-type: {content_type}\r\n')
+    if filename:
+        await write_file(filename, writer)
+    else:
+        writer.write('\r\n')
+        writer.write(response)
+        await writer.drain()
     writer.close()
     await writer.wait_closed()
 
