@@ -44,24 +44,24 @@ async def sync_ntp() -> None:
         print("Error syncing time")
 
 # Persistent storage functions
-def save_data(filename: str, data: dict) -> None:
+def save_data(filename: str, data: list) -> None:
     with open(filename, 'w') as f:
         ujson.dump(data, f)
 
-def load_data(filename: str) -> dict:
+def load_data(filename: str) -> list:
     try:
         with open(filename, 'r') as f:
             return ujson.load(f)
     except:
-        return {}
+        return []
 
 # Load or initialize zones and schedules
-zones: dict = load_data('zones.json')
-irrigation_schedules: dict = load_data('schedules.json')
+zones: list = load_data('zones.json')
+irrigation_schedules: list = load_data('schedules.json')
 
 # Helper functions
-def control_watering(zone_id: str, start: bool) -> None:
-    if zone_id not in zones:
+def control_watering(zone_id: int, start: bool) -> None:
+    if zone_id < 0 or zone_id >= len(zones):
         print(f"Zone {zone_id} not found")
         return
     zone = zones[zone_id]
@@ -92,6 +92,7 @@ async def handle_request(reader, writer):
     request = request.decode()
 
     content_type = 'application/json'
+    print(f"Handling request: {request}")
     if request.startswith('GET / HTTP'):
         # Serve the HTML file for the root route
         with open('index.html', 'r') as f:
@@ -99,19 +100,19 @@ async def handle_request(reader, writer):
         content_type = 'text/html'
     elif request.startswith('GET /zones'):
         # curl example: curl http://[ESP32_IP]/zones
-        response = ujson.dumps({zone_id: {"name": zone["name"], "on_pin": zone["on_pin"], "off_pin": zone["off_pin"]} for zone_id, zone in zones.items()})
+        response = ujson.dumps(zones)
     elif request.startswith('POST /zones'):
-        # curl example: curl -X POST -H "Content-Type: application/json" -d '{"1": {"name":"Front Lawn", "on_pin":12, "off_pin":13}, "2": {"name":"Back Yard", "on_pin":14, "off_pin":15}}' http://[ESP32_IP]/zones
+        # curl example: curl -X POST -H "Content-Type: application/json" -d '[{"name":"Front Lawn", "on_pin":12, "off_pin":13}, {"name":"Back Yard", "on_pin":14, "off_pin":15}]' http://[ESP32_IP]/zones
         body = parse_request_body(request)
-        if body and isinstance(body, dict):
-            new_zones = {}
-            for zone_id, zone_data in body.items():
+        if body and isinstance(body, list):
+            new_zones = []
+            for zone_data in body:
                 if 'name' in zone_data and 'on_pin' in zone_data and 'off_pin' in zone_data:
-                    new_zones[zone_id] = {
+                    new_zones.append({
                         "name": zone_data['name'],
                         "on_pin": zone_data['on_pin'],
                         "off_pin": zone_data['off_pin']
-                    }
+                    })
             zones = new_zones
             save_data('zones.json', zones)
             response = ujson.dumps(zones)
@@ -121,13 +122,13 @@ async def handle_request(reader, writer):
         # curl example: curl http://[ESP32_IP]/schedules
         response = ujson.dumps(irrigation_schedules)
     elif request.startswith('POST /schedules'):
-        # curl example: curl -X POST -H "Content-Type: application/json" -d '{"1": {"zone_id":"1", "start_time":"06:00", "duration_ms":300000, "expiry":1735689600}, "2": {"zone_id":"2", "start_time":"18:00", "duration_ms":600000, "expiry":1735689600}}' http://[ESP32_IP]/schedules
+        # curl example: curl -X POST -H "Content-Type: application/json" -d '[{"zone_id":0, "start_time":"06:00", "duration_ms":300000, "expiry":1735689600}, {"zone_id":1, "start_time":"18:00", "duration_ms":600000, "expiry":1735689600}]' http://[ESP32_IP]/schedules
         body = parse_request_body(request)
-        if body and isinstance(body, dict):
-            new_schedules = {}
-            for schedule_id, schedule_data in body.items():
+        if body and isinstance(body, list):
+            new_schedules = []
+            for schedule_data in body:
                 if all(key in schedule_data for key in ['zone_id', 'start_time', 'duration_ms', 'expiry']):
-                    new_schedules[schedule_id] = schedule_data
+                    new_schedules.append(schedule_data)
             irrigation_schedules = new_schedules
             save_data('schedules.json', irrigation_schedules)
             
@@ -136,9 +137,9 @@ async def handle_request(reader, writer):
                 if task.get_name().startswith('irrigation_'):
                     task.cancel()
             
-            for schedule_id, schedule in irrigation_schedules.items():
+            for i, schedule in enumerate(irrigation_schedules):
                 hour, minute = map(int, schedule['start_time'].split(':'))
-                asyncio.create_task(schedule_irrigation(schedule_id, hour, minute, schedule['zone_id'], schedule['duration_ms'], schedule['expiry']), name=f'irrigation_{schedule_id}')
+                asyncio.create_task(schedule_irrigation(i, hour, minute, schedule['zone_id'], schedule['duration_ms'], schedule['expiry']), name=f'irrigation_{i}')
             
             response = ujson.dumps(irrigation_schedules)
         else:
@@ -182,9 +183,9 @@ async def main():
     asyncio.create_task(periodic_ntp_sync())
     
     # Schedule existing irrigation tasks
-    for schedule_id, schedule in irrigation_schedules.items():
+    for i, schedule in enumerate(irrigation_schedules):
         hour, minute = map(int, schedule['start_time'].split(':'))
-        asyncio.create_task(schedule_irrigation(schedule_id, hour, minute, schedule['zone_id'], schedule['duration_ms'], schedule['expiry']), name=f'irrigation_{schedule_id}')
+        asyncio.create_task(schedule_irrigation(i, hour, minute, schedule['zone_id'], schedule['duration_ms'], schedule['expiry']), name=f'irrigation_{i}')
     
     server = await asyncio.start_server(handle_request, "0.0.0.0", 80)
     print('Server listening on port 80')

@@ -4,129 +4,140 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Irrigation System Dashboard</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        let zones = [];
+
+        async function fetchZones() {
+            try {
+                const response = await fetch('/zones');
+                zones = await response.json();
+                renderZonesTable();
+            } catch (error) {
+                console.error('Error fetching zones:', error);
+            }
+        }
+
+        function renderZonesTable() {
+            const zonesTable = document.getElementById('zones-table');
+            zonesTable.innerHTML = `
+                <table class="w-full">
+                    <thead>
+                        <tr>
+                            <th class="border px-4 py-2">ID</th>
+                            <th class="border px-4 py-2">Name</th>
+                            <th class="border px-4 py-2">On Pin</th>
+                            <th class="border px-4 py-2">Off Pin</th>
+                            <th class="border px-4 py-2">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${zones.map((zone, index) => `
+                            <tr>
+                                <td class="border px-4 py-2">${index}</td>
+                                <td class="border px-4 py-2"><input type="text" class="w-full" value="${zone.name}" onchange="updateZone(${index}, 'name', this.value)"></td>
+                                <td class="border px-4 py-2"><input type="number" class="w-full" value="${zone.on_pin}" onchange="updateZone(${index}, 'on_pin', this.value)"></td>
+                                <td class="border px-4 py-2"><input type="number" class="w-full" value="${zone.off_pin}" onchange="updateZone(${index}, 'off_pin', this.value)"></td>
+                                <td class="border px-4 py-2"><button onclick="removeZone(${index})" class="bg-red-500 text-white px-2 py-1 rounded">Remove</button></td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+        }
+
+        function updateZone(index, field, value) {
+            zones[index][field] = field === 'name' ? value : parseInt(value);
+        }
+
+        function addZone() {
+            zones.push({ name: "New Zone", on_pin: 0, off_pin: 0 });
+            renderZonesTable();
+        }
+
+        function removeZone(index) {
+            zones.splice(index, 1);
+            renderZonesTable();
+        }
+
+        async function saveZones() {
+            try {
+                const response = await fetch('/zones', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(zones),
+                });
+                if (response.ok) {
+                    alert('Zones saved successfully!');
+                } else {
+                    alert('Error saving zones. Please try again.');
+                }
+            } catch (error) {
+                console.error('Error saving zones:', error);
+                alert('Error saving zones. Please try again.');
+            }
+        }
+
+        async function fetchSchedules() {
+            const response = await fetch('/schedules');
+            const schedules = await response.json();
+            const schedulesList = document.getElementById('schedules-list');
+            schedulesList.innerHTML = schedules.map((schedule, index) => `
+                <div class="mb-2">
+                    <strong>${index}:</strong> Zone ${schedule.zone_id}, Start: ${schedule.start_time}, Duration: ${schedule.duration_ms}ms
+                </div>
+            `).join('');
+        }
+
+        async function fetchSensorData() {
+            const response = await fetch('/sensor');
+            const data = await response.json();
+            document.getElementById('soil-moisture').textContent = data.soil_moisture;
+        }
+
+        function updateData() {
+            fetchSchedules();
+            fetchSensorData();
+        }
+
+        // Update data every 5 seconds
+        setInterval(updateData, 5000);
+
+        // Initial update
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchZones();
+            fetchSchedules();
+            fetchSensorData();
+        });
+    </script>
 </head>
 <body class="bg-gray-100">
     <div class="container mx-auto p-4">
         <h1 class="text-3xl font-bold mb-4">Irrigation System Dashboard</h1>
-        
+
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div class="bg-white p-4 rounded shadow">
                 <h2 class="text-xl font-semibold mb-2">Zones</h2>
-                <div id="zones-list"></div>
-                <button onclick="addZone()" class="mt-2 bg-blue-500 text-white px-4 py-2 rounded">Add Zone</button>
+                <div id="zones-table"></div>
+                <div class="mt-2 flex space-x-2">
+                    <button onclick="addZone()" class="bg-blue-500 text-white px-4 py-2 rounded">Add Zone</button>
+                    <button onclick="saveZones()" class="bg-green-500 text-white px-4 py-2 rounded">Save Zones</button>
+                </div>
             </div>
-            
+
             <div class="bg-white p-4 rounded shadow">
                 <h2 class="text-xl font-semibold mb-2">Schedules</h2>
                 <div id="schedules-list"></div>
-                <button onclick="addSchedule()" class="mt-2 bg-green-500 text-white px-4 py-2 rounded">Add Schedule</button>
+                <button class="mt-2 bg-blue-500 text-white px-4 py-2 rounded">Add Schedule</button>
             </div>
         </div>
-        
+
         <div class="mt-4 bg-white p-4 rounded shadow">
             <h2 class="text-xl font-semibold mb-2">Sensor Data</h2>
             <p>Soil Moisture: <span id="soil-moisture"></span></p>
         </div>
     </div>
-
-    <script>
-        function fetchZones() {
-            fetch('/zones')
-                .then(response => response.json())
-                .then(data => {
-                    const zonesList = document.getElementById('zones-list');
-                    zonesList.innerHTML = '';
-                    for (const [id, zone] of Object.entries(data)) {
-                        zonesList.innerHTML += `
-                            <div class="mb-2">
-                                <strong>${zone.name}</strong> (ID: ${id})
-                                <br>On Pin: ${zone.on_pin}, Off Pin: ${zone.off_pin}
-                            </div>
-                        `;
-                    }
-                });
-        }
-
-        function fetchSchedules() {
-            fetch('/schedules')
-                .then(response => response.json())
-                .then(data => {
-                    const schedulesList = document.getElementById('schedules-list');
-                    schedulesList.innerHTML = '';
-                    for (const [id, schedule] of Object.entries(data)) {
-                        schedulesList.innerHTML += `
-                            <div class="mb-2">
-                                <strong>Schedule ${id}</strong>
-                                <br>Zone: ${schedule.zone_id}, Time: ${schedule.start_time}
-                                <br>Duration: ${schedule.duration_ms}ms, Expiry: ${new Date(schedule.expiry * 1000).toLocaleString()}
-                            </div>
-                        `;
-                    }
-                });
-        }
-
-        function fetchSensorData() {
-            fetch('/sensor')
-                .then(response => response.json())
-                .then(data => {
-                    document.getElementById('soil-moisture').textContent = data.soil_moisture;
-                });
-        }
-
-        function addZone() {
-            const name = prompt('Enter zone name:');
-            const onPin = prompt('Enter ON pin number:');
-            const offPin = prompt('Enter OFF pin number:');
-            
-            if (name && onPin && offPin) {
-                const newZone = {
-                    [Date.now()]: { name, on_pin: parseInt(onPin), off_pin: parseInt(offPin) }
-                };
-                
-                fetch('/zones', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(newZone)
-                }).then(() => fetchZones());
-            }
-        }
-
-        function addSchedule() {
-            const zoneId = prompt('Enter zone ID:');
-            const startTime = prompt('Enter start time (HH:MM):');
-            const durationMs = prompt('Enter duration in milliseconds:');
-            const expiry = prompt('Enter expiry timestamp:');
-            
-            if (zoneId && startTime && durationMs && expiry) {
-                const newSchedule = {
-                    [Date.now()]: {
-                        zone_id: zoneId,
-                        start_time: startTime,
-                        duration_ms: parseInt(durationMs),
-                        expiry: parseInt(expiry)
-                    }
-                };
-                
-                fetch('/schedules', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(newSchedule)
-                }).then(() => fetchSchedules());
-            }
-        }
-
-        // Initial data fetch
-        fetchZones();
-        fetchSchedules();
-        fetchSensorData();
-
-        // Periodic updates
-        setInterval(() => {
-            fetchZones();
-            fetchSchedules();
-            fetchSensorData();
-        }, 30000);  // Update every 30 seconds
-    </script>
 </body>
 </html>
