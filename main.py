@@ -59,14 +59,6 @@ def load_data(filename: str) -> dict:
 zones: dict = load_data('zones.json')
 irrigation_schedules: dict = load_data('schedules.json')
 
-# Initialize pins for zones
-def initialize_zone_pins():
-    for zone_id, zone in zones.items():
-        zone['on_pin'] = Pin(zone['on_pin'], Pin.OUT)
-        zone['off_pin'] = Pin(zone['off_pin'], Pin.OUT)
-
-initialize_zone_pins()
-
 # Helper functions
 def control_watering(zone_id: str, start: bool) -> None:
     if zone_id not in zones:
@@ -74,10 +66,12 @@ def control_watering(zone_id: str, start: bool) -> None:
         return
     zone = zones[zone_id]
     print(f"{'Started' if start else 'Stopped'} watering zone {zone_id}")
-    pin = zone['on_pin'] if start else zone['off_pin']
+    pin_id = zone['on_pin'] if start else zone['off_pin']
+    pin = Pin(pin_id, Pin.OUT)
     pin.value(1)
     time.sleep(0.06)
     pin.value(0)
+    Pin(pin_id, Pin.In)
 
 def read_soil_moisture() -> int:
     return soil_sensor.read()
@@ -105,7 +99,7 @@ async def handle_request(reader, writer):
         content_type = 'text/html'
     elif request.startswith('GET /zones'):
         # curl example: curl http://[ESP32_IP]/zones
-        response = ujson.dumps({zone_id: {"name": zone["name"], "on_pin": zone["on_pin"].id(), "off_pin": zone["off_pin"].id()} for zone_id, zone in zones.items()})
+        response = ujson.dumps({zone_id: {"name": zone["name"], "on_pin": zone["on_pin"], "off_pin": zone["off_pin"]} for zone_id, zone in zones.items()})
     elif request.startswith('POST /zones'):
         # curl example: curl -X POST -H "Content-Type: application/json" -d '{"1": {"name":"Front Lawn", "on_pin":12, "off_pin":13}, "2": {"name":"Back Yard", "on_pin":14, "off_pin":15}}' http://[ESP32_IP]/zones
         body = parse_request_body(request)
@@ -120,7 +114,6 @@ async def handle_request(reader, writer):
                     }
             zones = new_zones
             save_data('zones.json', zones)
-            initialize_zone_pins()
             response = ujson.dumps(zones)
         else:
             response = "Bad Request"
