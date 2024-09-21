@@ -9,6 +9,9 @@ import uasyncio as asyncio
 # Wi-Fi connection
 ssid: str = 'Pita'
 password: str = '***REMOVED***'
+# ssid: str = 'FATAL_FREE_WIFI'
+ssid: str = 'iPita'
+password: str = 'isnocake'
 
 # Pins
 soil_sensor: ADC = ADC(0)
@@ -45,6 +48,7 @@ async def sync_ntp() -> None:
 
 # Persistent storage functions
 def save_data(filename: str, data: list) -> None:
+    print(f"Saving data to {filename}")
     with open(filename, 'w') as f:
         ujson.dump(data, f)
 
@@ -75,15 +79,6 @@ def control_watering(zone_id: int, start: bool) -> None:
 
 def read_soil_moisture() -> int:
     return soil_sensor.read()
-
-def parse_request_body(request: str) -> dict:
-    json_start = request.find('\r\n\r\n') + 4
-    if json_start == 3:  # If '\r\n\r\n' is not found
-        return None
-    try:
-        return ujson.loads(request[json_start:])
-    except:
-        return None
     
 async def serve_file(filename: str, writer) -> None:
     try:
@@ -96,25 +91,40 @@ async def serve_file(filename: str, writer) -> None:
     except Exception as e:
         print(f"Error serving file [{filename}]: {e}")
 
+async def read_headers(reader) -> dict:
+    headers = {}
+    while True:
+        line = await reader.readline()
+        if line == b'\r\n':
+            break
+        name, value = line.decode().strip().split(': ')
+        headers[name.lower()] = value
+    return headers
+
 async def handle_request(reader, writer):
     global zones, irrigation_schedules
-    
-    request = await reader.read(1024)
-    request = request.decode()
+
+    method_path = (await reader.readline()).decode().strip()
+    headers = await read_headers(reader)
+    print(f"Handling request: {method_path}") #     headers={headers}")
+
+    content_length = int(headers.get('content-length', '0'))
+    print(f"content_length={content_length}")
+    body = ujson.loads((await reader.read(content_length)).decode()) if content_length > 0 else None
 
     content_type = 'application/json'
     filename = None
-    print(f"Handling request: {request}")
-    if request.startswith('GET / HTTP'):
+    if method_path.startswith('GET / HTTP'):
         # Serve the HTML file for the root route
         filename = 'index.html'
         content_type = 'text/html'
-    elif request.startswith('GET /zones'):
+    elif method_path.startswith('GET /zones'):
         # curl example: curl http://[ESP32_IP]/zones
         response = ujson.dumps(zones)
-    elif request.startswith('POST /zones'):
+    elif method_path.startswith('POST /zones'):
         # curl example: curl -X POST -H "Content-Type: application/json" -d '[{"name":"Front Lawn", "on_pin":12, "off_pin":13}, {"name":"Back Yard", "on_pin":14, "off_pin":15}]' http://[ESP32_IP]/zones
-        body = parse_request_body(request)
+        print(f"body = {body}, isinstance(body, list) = {isinstance(body, list)}")
+
         if body and isinstance(body, list):
             new_zones = []
             for zone_data in body:
@@ -129,12 +139,11 @@ async def handle_request(reader, writer):
             response = ujson.dumps(zones)
         else:
             response = "Bad Request"
-    elif request.startswith('GET /schedules'):
+    elif method_path.startswith('GET /schedules'):
         # curl example: curl http://[ESP32_IP]/schedules
         response = ujson.dumps(irrigation_schedules)
-    elif request.startswith('POST /schedules'):
+    elif method_path.startswith('POST /schedules'):
         # curl example: curl -X POST -H "Content-Type: application/json" -d '[{"zone_id":0, "start_time":"06:00", "duration_ms":300000, "expiry":1735689600}, {"zone_id":1, "start_time":"18:00", "duration_ms":600000, "expiry":1735689600}]' http://[ESP32_IP]/schedules
-        body = parse_request_body(request)
         if body and isinstance(body, list):
             new_schedules = []
             for schedule_data in body:
@@ -155,11 +164,11 @@ async def handle_request(reader, writer):
             response = ujson.dumps(irrigation_schedules)
         else:
             response = "Bad Request"
-    elif request.startswith('GET /sensor'):
+    elif method_path.startswith('GET /sensor'):
         # curl example: curl http://[ESP32_IP]/sensor
         moisture = read_soil_moisture()
         response = ujson.dumps({"soil_moisture": moisture})
-    elif request.startswith('GET /time'):
+    elif method_path.startswith('GET /time'):
         # curl example: curl http://[ESP32_IP]/time
         current_time_ms: int = time.time() * 1000  # Convert to milliseconds
         response = ujson.dumps({"time_ms": current_time_ms})
