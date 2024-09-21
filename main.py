@@ -101,6 +101,14 @@ async def read_headers(reader) -> dict:
         headers[name.lower()] = value
     return headers
 
+def get_status_message(status_code):
+    status_messages = {
+        200: "OK",
+        400: "Bad Request",
+        404: "Not Found"
+    }
+    return status_messages.get(status_code, "Unknown")
+
 async def handle_request(reader, writer):
     global zones, irrigation_schedules
 
@@ -113,6 +121,7 @@ async def handle_request(reader, writer):
     body = ujson.loads((await reader.read(content_length)).decode()) if content_length > 0 else None
 
     content_type = 'application/json'
+    status_code = 200
     filename = None
     if method_path.startswith('GET / HTTP'):
         # Serve the HTML file for the root route
@@ -138,7 +147,7 @@ async def handle_request(reader, writer):
             save_data('zones.json', zones)
             response = ujson.dumps(zones)
         else:
-            response = "Bad Request"
+            status_code = 400
     elif method_path.startswith('GET /schedules'):
         # curl example: curl http://[ESP32_IP]/schedules
         response = ujson.dumps(irrigation_schedules)
@@ -163,7 +172,7 @@ async def handle_request(reader, writer):
             
             response = ujson.dumps(irrigation_schedules)
         else:
-            response = "Bad Request"
+            status_code = 400
     elif method_path.startswith('GET /sensor'):
         # curl example: curl http://[ESP32_IP]/sensor
         moisture = read_soil_moisture()
@@ -173,9 +182,9 @@ async def handle_request(reader, writer):
         current_time_ms: int = time.time() * 1000  # Convert to milliseconds
         response = ujson.dumps({"time_ms": current_time_ms})
     else:
-        response = "Not Found"
+        status_code = 404
 
-    writer.write(f'HTTP/1.0 200 OK\r\nContent-type: {content_type}\r\n\r\n')
+    writer.write(f'HTTP/1.0 {status_code} {get_status_message(status_code)}\r\nContent-type: {content_type}\r\n\r\n')
     if filename:
         await serve_file(filename, writer)
     else:
