@@ -9,9 +9,8 @@ import uasyncio as asyncio
 # Wi-Fi connection
 ssid: str = 'Pita'
 password: str = '***REMOVED***'
-# ssid: str = 'FATAL_FREE_WIFI'
-ssid: str = 'iPita'
-password: str = 'isnocake'
+# ssid: str = 'iPita'
+# password: str = 'isnocake'
 
 # Pins
 soil_sensor: ADC = ADC(0)
@@ -82,12 +81,15 @@ def read_soil_moisture() -> int:
     
 async def serve_file(filename: str, writer) -> None:
     try:
+        start_time = time.ticks_ms()
         with open(filename, 'r') as f:
             while True:
                 chunk = f.read(1024)  # Read 1KB at a time
                 if not chunk:
                     break
                 writer.write(chunk)
+                await asyncio.sleep(0.02) # makes serving more stable
+        print(f'served html in {time.ticks_ms() - start_time}ms')
     except Exception as e:
         print(f"Error serving file [{filename}]: {e}")
 
@@ -114,10 +116,10 @@ async def handle_request(reader, writer):
 
     method_path = (await reader.readline()).decode().strip()
     headers = await read_headers(reader)
-    print(f"Handling request: {method_path}") #     headers={headers}")
-
     content_length = int(headers.get('content-length', '0'))
-    print(f"content_length={content_length}")
+
+    print(f"@{time.time()} Handling request: {method_path} (content_length={content_length})")  #     headers={headers}")
+
     body = ujson.loads((await reader.read(content_length)).decode()) if content_length > 0 else None
 
     content_type = 'application/json'
@@ -193,19 +195,19 @@ async def handle_request(reader, writer):
     writer.close()
     await writer.wait_closed()
 
-async def schedule_irrigation(schedule_id, hour, minute, zone_id, duration_ms, expiry):
+async def schedule_irrigation(irrigation_id: int):
     while True:
-        now = time.localtime()
-        if time.time() > expiry:
-            print(f"Schedule {schedule_id} has expired")
-            del irrigation_schedules[schedule_id]
-            save_data('schedules.json', irrigation_schedules)
+        i = irrigation_schedules[irrigation_id]
+        hour, minute = map(int, i['start_time'].split(':'))
+        now = time.gmtime()
+        if 'expiry' in i and time.time() > i['expiry']:
+            print(f"Schedule {irrigation_id} has expired")
             break
         seconds_until = ((hour - now[3]) * 3600 + (minute - now[4]) * 60 - now[5]) % 86400
         await asyncio.sleep(seconds_until)
-        control_watering(zone_id, True)
-        await asyncio.sleep(duration_ms / 1000)
-        control_watering(zone_id, False)
+        control_watering(i['zone_id'], True)
+        await asyncio.sleep(i['duration_ms'] / 1000)
+        control_watering(i['zone_id'], False)
 
 async def main():
     await connect_wifi()
@@ -216,8 +218,7 @@ async def main():
     
     # Schedule existing irrigation tasks
     for i, schedule in enumerate(irrigation_schedules):
-        hour, minute = map(int, schedule['start_time'].split(':'))
-        asyncio.create_task(schedule_irrigation(i, hour, minute, schedule['zone_id'], schedule['duration_ms'], schedule['expiry']), name=f'irrigation_{i}')
+        asyncio.create_task(schedule_irrigation(i))
     
     server = await asyncio.start_server(handle_request, "0.0.0.0", 80)
     print('Server listening on port 80')
