@@ -182,7 +182,8 @@ async def handle_request(reader, writer):
         response = ujson.dumps({"soil_moisture": moisture})
     elif method_path.startswith('GET /time'):
         # curl example: curl http://[ESP32_IP]/time
-        current_time_ms: int = time.time() * 1000  # Convert to milliseconds
+        timeoffset: int = 3155673600 - 2208988800  # 1970-2000, see: https://github.com/micropython/micropython-lib/blob/master/micropython/net/ntptime/ntptime.py
+        current_time_ms: int = (time.time()+timeoffset) * 1000  # Convert to milliseconds
         response = ujson.dumps({"time_ms": current_time_ms})
     else:
         status_code = 404
