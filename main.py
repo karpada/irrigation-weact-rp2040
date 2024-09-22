@@ -6,11 +6,15 @@ import ujson
 import ntptime
 import uasyncio as asyncio
 
+
 # Wi-Fi connection
 ssid: str = 'Pita'
 password: str = '***REMOVED***'
 # ssid: str = 'iPita'
 # password: str = 'isnocake'
+
+# see: https://github.com/micropython/micropython-lib/blob/master/micropython/net/ntptime/ntptime.py
+local_time_lag: int = 3155673600 - 2208988800  # 1970-2000
 
 # Pins
 soil_sensor: ADC = ADC(0)
@@ -164,10 +168,6 @@ async def handle_request(reader, writer):
             irrigation_schedules = new_schedules
             save_data('schedules.json', irrigation_schedules)
             
-            # Cancel all existing irrigation tasks and schedule new ones
-            for task in asyncio.all_tasks():
-                if task.get_name().startswith('irrigation_'):
-                    task.cancel()
             refresh_irrigation_schedule()
             
             response = ujson.dumps(irrigation_schedules)
@@ -179,8 +179,7 @@ async def handle_request(reader, writer):
         response = ujson.dumps({"soil_moisture": moisture})
     elif method_path.startswith('GET /time'):
         # curl example: curl http://[ESP32_IP]/time
-        timeoffset: int = 3155673600 - 2208988800  # 1970-2000, see: https://github.com/micropython/micropython-lib/blob/master/micropython/net/ntptime/ntptime.py
-        current_time_ms: int = (time.time()+timeoffset) * 1000  # Convert to milliseconds
+        current_time_ms: int = (time.time()+local_time_lag) * 1000  # Convert to milliseconds
         response = ujson.dumps({"time_ms": current_time_ms})
     else:
         status_code = 404
@@ -194,24 +193,32 @@ async def handle_request(reader, writer):
     writer.close()
     await writer.wait_closed()
 
+
+irrigation_tasks: list[asyncio.Task] = []
 def refresh_irrigation_schedule():
+    for task in irrigation_tasks:
+        task.cancel()
+    irrigation_tasks.clear()
     for i, schedule in enumerate(irrigation_schedules):
-        hour, minute = map(int, schedule['start_time'].split(':'))
-        asyncio.create_task(schedule_irrigation(i)) #, name=f'irrigation_{i}')
+        irrigation_tasks.append(asyncio.create_task(schedule_irrigation(i)))
 
 async def schedule_irrigation(irrigation_id: int):
+    print(f"@{time.time()} irrigation_schedules[{irrigation_id}] Starting => {irrigation_schedules[irrigation_id]}")
     while True:
         i = irrigation_schedules[irrigation_id]
-        hour, minute = map(int, i['start_time'].split(':'))
-        now = time.gmtime()
-        if 'expiry' in i and time.time() > i['expiry']:
+        if 'expiry' in i and time.time() > i['expiry']-local_time_lag:
             print(f"Schedule {irrigation_id} has expired")
             break
+        hour, minute = map(int, i['start_time'].split(':'))
+        now = time.gmtime()
         seconds_until = ((hour - now[3]) * 3600 + (minute - now[4]) * 60 - now[5]) % 86400
+        print(f"@{time.time()} irrigation_schedules[{irrigation_id}] Waiting {seconds_until} seconds => {irrigation_schedules[irrigation_id]}")
         await asyncio.sleep(seconds_until)
+        print(f"@{time.time()} irrigation_schedules[{irrigation_id}] Srating irrigation of zone[{i['zone_id']}] seconds => {irrigation_schedules[irrigation_id]}")
         if i['enabled']:
             control_watering(i['zone_id'], True)
         await asyncio.sleep(i['duration_ms'] / 1000)
+        print(f"@{time.time()} irrigation_schedules[{irrigation_id}] Stopping irrigation of zone[{i['zone_id']}] seconds => {irrigation_schedules[irrigation_id]}")
         control_watering(i['zone_id'], False)
 
 async def main():

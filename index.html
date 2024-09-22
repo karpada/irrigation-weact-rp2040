@@ -103,7 +103,7 @@
                                 <td class="border px-4 py-2"><input type="time" value="${schedule.start_time}" onchange="updateSchedule(${index}, 'start_time', this.value)"></td>
                                 <td class="border px-4 py-2"><input type="number" value="${schedule.duration_ms}" onchange="updateSchedule(${index}, 'duration_ms', this.value)"></td>
                                 <td class="border px-4 py-2"><input type="datetime-local" value="${new Date(schedule.expiry * 1000).toISOString().slice(0, 16)}" onchange="updateSchedule(${index}, 'expiry', new Date(this.value).getTime() / 1000)"></td>
-                                <td class="border px-4 py-2"><input type="checkbox" ${schedule.ensabled ? 'checked' : ''} onchange="updateSchedule(${index}, 'enabled', this.checked)"></td>
+                                <td class="border px-4 py-2"><input type="checkbox" ${schedule.enabled ? 'checked' : ''} onchange="updateSchedule(${index}, 'enabled', this.checked)"></td>
                                 <td class="border px-4 py-2"><button onclick="removeSchedule(${index})" class="bg-red-500 text-white px-2 py-1 rounded">X</button></td>
                             </tr>
                         `).join('')}
