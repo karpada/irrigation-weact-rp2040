@@ -159,7 +159,7 @@ async def handle_request(reader, writer):
         if body and isinstance(body, list):
             new_schedules = []
             for schedule_data in body:
-                if all(key in schedule_data for key in ['zone_id', 'start_time', 'duration_ms', 'expiry']):
+                if all(key in schedule_data for key in ['zone_id', 'start_time', 'duration_ms', 'enabled', 'expiry']):
                     new_schedules.append(schedule_data)
             irrigation_schedules = new_schedules
             save_data('schedules.json', irrigation_schedules)
@@ -168,10 +168,7 @@ async def handle_request(reader, writer):
             for task in asyncio.all_tasks():
                 if task.get_name().startswith('irrigation_'):
                     task.cancel()
-            
-            for i, schedule in enumerate(irrigation_schedules):
-                hour, minute = map(int, schedule['start_time'].split(':'))
-                asyncio.create_task(schedule_irrigation(i, hour, minute, schedule['zone_id'], schedule['duration_ms'], schedule['expiry']), name=f'irrigation_{i}')
+            refresh_irrigation_schedule()
             
             response = ujson.dumps(irrigation_schedules)
         else:
@@ -197,6 +194,11 @@ async def handle_request(reader, writer):
     writer.close()
     await writer.wait_closed()
 
+def refresh_irrigation_schedule():
+    for i, schedule in enumerate(irrigation_schedules):
+        hour, minute = map(int, schedule['start_time'].split(':'))
+        asyncio.create_task(schedule_irrigation(i)) #, name=f'irrigation_{i}')
+
 async def schedule_irrigation(irrigation_id: int):
     while True:
         i = irrigation_schedules[irrigation_id]
@@ -207,7 +209,8 @@ async def schedule_irrigation(irrigation_id: int):
             break
         seconds_until = ((hour - now[3]) * 3600 + (minute - now[4]) * 60 - now[5]) % 86400
         await asyncio.sleep(seconds_until)
-        control_watering(i['zone_id'], True)
+        if i['enabled']:
+            control_watering(i['zone_id'], True)
         await asyncio.sleep(i['duration_ms'] / 1000)
         control_watering(i['zone_id'], False)
 
@@ -218,10 +221,8 @@ async def main():
     # Schedule regular NTP sync (every 24 hours)
     asyncio.create_task(periodic_ntp_sync())
     
-    # Schedule existing irrigation tasks
-    for i, schedule in enumerate(irrigation_schedules):
-        asyncio.create_task(schedule_irrigation(i))
-    
+    refresh_irrigation_schedule()
+
     server = await asyncio.start_server(handle_request, "0.0.0.0", 80)
     print('Server listening on port 80')
     await server.wait_closed()
