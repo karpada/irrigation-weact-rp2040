@@ -156,12 +156,13 @@ async def handle_request(reader, writer):
             save_data('config.json', config)
             response = ujson.dumps(config)
 
-        elif method_path.startswith('GET /sensor'):
-            moisture = read_soil_moisture()
-            response = ujson.dumps({"soil_moisture": moisture})
-        elif method_path.startswith('GET /time'):
-            current_time_ms: int = (time.time()+local_time_lag) * 1000  # Convert to milliseconds
-            response = ujson.dumps({"time_ms": current_time_ms})
+
+        elif method_path.startswith('GET /status'):
+            response = ujson.dumps({
+                "time_ms": int(time.time()+local_time_lag) * 1000,
+                "soil_moisture": read_soil_moisture(),
+            })
+
         else:
             status_code = 404
     except Exception as e:

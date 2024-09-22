@@ -44,21 +44,20 @@
     <script>
         let config = { zones: [], schedules: [] };
 
-        function updateTime() {
-            fetch('/time')
-                .then(response => response.json())
-                .then(data => {
-                    const date = new Date(data.time_ms);
-                    document.getElementById('current-time').textContent = date.toLocaleString();
-                });
-        }
+        async function updateStatus() {
+            try {
+                const response = await fetch('/status');
+                const data = await response.json();
 
-        function updateSoilMoisture() {
-            fetch('/sensor')
-                .then(response => response.json())
-                .then(data => {
-                    document.getElementById('soil-moisture').textContent = data.soil_moisture;
-                });
+                // Update time
+                const date = new Date(data.time_ms);
+                document.getElementById('current-time').textContent = date.toLocaleString();
+
+                // Update soil moisture
+                document.getElementById('soil-moisture').textContent = data.soil_moisture;
+            } catch (error) {
+                console.error('Error fetching status:', error);
+            }
         }
 
         function renderZones() {
@@ -192,10 +191,8 @@
         }
 
         function init() {
-            updateTime();
-            updateSoilMoisture();
-            setInterval(updateTime, 1000);
-            setInterval(updateSoilMoisture, 5000);
+            updateStatus();
+            setInterval(updateStatus, 5000);
 
             fetch('/config')
                 .then(response => response.json())
