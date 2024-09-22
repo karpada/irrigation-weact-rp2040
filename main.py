@@ -45,6 +45,12 @@ async def sync_ntp() -> None:
     except:
         print("Error syncing time")
 
+async def periodic_ntp_sync():
+    while True:
+        await asyncio.sleep(24 * 60 * 60)  # 24 hours
+        await sync_ntp()
+
+
 # Persistent storage functions
 def save_data(filename: str, data: dict) -> None:
     print(f"Saving data to {filename}")
@@ -57,11 +63,9 @@ def load_data(filename: str) -> dict:
             return ujson.load(f)
     except:
         return {"zones": [], "schedules": [], "options": {}}
-
-# Load or initialize config
 config: dict = load_data('config.json')
 
-# Helper functions
+# Watering control functions
 def control_watering(zone_id: int, start: bool) -> None:
     if zone_id < 0 or zone_id >= len(config["zones"]):
         print(f"Zone {zone_id} not found")
@@ -75,9 +79,37 @@ def control_watering(zone_id: int, start: bool) -> None:
     pin.value(0)
     Pin(pin_id, Pin.IN)
 
+async def schedule_irrigation(irrigation_id: int):
+    print(f"@{time.time()} config['schedules'][{irrigation_id}] New task => {config['schedules'][irrigation_id]}")
+    while True:
+        i = config["schedules"][irrigation_id]
+        if 'expiry' in i and time.time() > i['expiry']-local_time_lag:
+            print(f"Schedule {irrigation_id} has expired")
+            break
+        hour, minute = map(int, i['start_time'].split(':'))
+        now = time.gmtime()
+        seconds_until = ((hour - now[3]) * 3600 + (minute - now[4]) * 60 - now[5]) % 86400
+        print(f"@{time.time()} config['schedules'][{irrigation_id}] Waiting {seconds_until} seconds => {config['schedules'][irrigation_id]}")
+        await asyncio.sleep(seconds_until)
+        print(f"@{time.time()} config['schedules'][{irrigation_id}] Starting irrigation of zone[{i['zone_id']}] seconds => {config['schedules'][irrigation_id]}")
+        if i['enabled']:
+            control_watering(i['zone_id'], True)
+        await asyncio.sleep(i['duration_ms'] / 1000)
+        print(f"@{time.time()} config['schedules'][{irrigation_id}] Stopping irrigation of zone[{i['zone_id']}] seconds => {config['schedules'][irrigation_id]}")
+        control_watering(i['zone_id'], False)
+
+irrigation_tasks: list[asyncio.Task] = []
+def refresh_irrigation_schedule():
+    for task in irrigation_tasks:
+        task.cancel()
+    irrigation_tasks.clear()
+    for i, schedule in enumerate(config["schedules"]):
+        irrigation_tasks.append(asyncio.create_task(schedule_irrigation(i)))
+
 def read_soil_moisture() -> int:
     return soil_sensor.read()
-    
+
+# HTTP server
 async def serve_file(filename: str, writer) -> None:
     try:
         start_time = time.ticks_ms()
@@ -124,6 +156,8 @@ async def handle_request(reader, writer):
         headers = await read_headers(reader)
         content_length = int(headers.get('content-length', '0'))
 
+        print(f"@{time.time()} Handling request: {method_path} (content_length={content_length})")  #     headers={headers}")
+
         body = ujson.loads((await reader.read(content_length)).decode()) if content_length > 0 else None
 
         if method_path.startswith('GET / HTTP'):
@@ -164,10 +198,17 @@ async def handle_request(reader, writer):
             })
 
         else:
+            response = f"Resource not found: {method_path}"
             status_code = 404
+
     except Exception as e:
         print(f"Error handling request: {e}")
-        status_code = 500
+        writer.write(f'HTTP/1.0 500 {get_status_message(500)}\r\n')
+        await writer.drain()
+        writer.close()
+        await writer.wait_closed()
+        return
+
     writer.write(f'HTTP/1.0 {status_code} {get_status_message(status_code)}\r\nContent-type: {content_type}\r\n\r\n')
     if filename:
         await serve_file(filename, writer)
@@ -177,50 +218,18 @@ async def handle_request(reader, writer):
     writer.close()
     await writer.wait_closed()
 
-irrigation_tasks: list[asyncio.Task] = []
-def refresh_irrigation_schedule():
-    for task in irrigation_tasks:
-        task.cancel()
-    irrigation_tasks.clear()
-    for i, schedule in enumerate(config["schedules"]):
-        irrigation_tasks.append(asyncio.create_task(schedule_irrigation(i)))
-
-async def schedule_irrigation(irrigation_id: int):
-    print(f"@{time.time()} config['schedules'][{irrigation_id}] New task => {config['schedules'][irrigation_id]}")
-    while True:
-        i = config["schedules"][irrigation_id]
-        if 'expiry' in i and time.time() > i['expiry']-local_time_lag:
-            print(f"Schedule {irrigation_id} has expired")
-            break
-        hour, minute = map(int, i['start_time'].split(':'))
-        now = time.gmtime()
-        seconds_until = ((hour - now[3]) * 3600 + (minute - now[4]) * 60 - now[5]) % 86400
-        print(f"@{time.time()} config['schedules'][{irrigation_id}] Waiting {seconds_until} seconds => {config['schedules'][irrigation_id]}")
-        await asyncio.sleep(seconds_until)
-        print(f"@{time.time()} config['schedules'][{irrigation_id}] Starting irrigation of zone[{i['zone_id']}] seconds => {config['schedules'][irrigation_id]}")
-        if i['enabled']:
-            control_watering(i['zone_id'], True)
-        await asyncio.sleep(i['duration_ms'] / 1000)
-        print(f"@{time.time()} config['schedules'][{irrigation_id}] Stopping irrigation of zone[{i['zone_id']}] seconds => {config['schedules'][irrigation_id]}")
-        control_watering(i['zone_id'], False)
-
 async def main():
     await connect_wifi()
     await sync_ntp()
-    
+
     # Schedule regular NTP sync (every 24 hours)
     asyncio.create_task(periodic_ntp_sync())
-    
+
     refresh_irrigation_schedule()
 
     server = await asyncio.start_server(handle_request, "0.0.0.0", 80)
     print('Server listening on port 80')
     await server.wait_closed()
-
-async def periodic_ntp_sync():
-    while True:
-        await asyncio.sleep(24 * 60 * 60)  # 24 hours
-        await sync_ntp()
 
 if __name__ == "__main__":
     asyncio.run(main())
