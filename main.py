@@ -78,7 +78,7 @@ def control_watering(zone_id: int, start: bool) -> None:
     pin.value(1)
     time.sleep(0.06)
     pin.value(0)
-    Pin(pin_id, Pin.In)
+    Pin(pin_id, Pin.IN)
 
 def read_soil_moisture() -> int:
     return soil_sensor.read()
@@ -122,7 +122,7 @@ async def handle_request(reader, writer):
     headers = await read_headers(reader)
     content_length = int(headers.get('content-length', '0'))
 
-    print(f"@{time.time()} Handling request: {method_path} (content_length={content_length})")  #     headers={headers}")
+    # print(f"@{time.time()} Handling request: {method_path} (content_length={content_length})")  #     headers={headers}")
 
     body = ujson.loads((await reader.read(content_length)).decode()) if content_length > 0 else None
 
@@ -147,8 +147,8 @@ async def handle_request(reader, writer):
                 if 'name' in zone_data and 'on_pin' in zone_data and 'off_pin' in zone_data:
                     new_zones.append({
                         "name": zone_data['name'],
-                        "on_pin": zone_data['on_pin'],
-                        "off_pin": zone_data['off_pin']
+                        "on_pin": int(zone_data['on_pin']),
+                        "off_pin": int(zone_data['off_pin'])
                     })
             zones = new_zones
             save_data('zones.json', zones)
@@ -163,13 +163,16 @@ async def handle_request(reader, writer):
         if body and isinstance(body, list):
             new_schedules = []
             for schedule_data in body:
-                if all(key in schedule_data for key in ['zone_id', 'start_time', 'duration_ms', 'enabled', 'expiry']):
-                    new_schedules.append(schedule_data)
+                new_schedules.append({
+                    "zone_id": int(schedule_data['zone_id']),
+                    "start_time": schedule_data['start_time'],
+                    "duration_ms": int(schedule_data['duration_ms']),
+                    "enabled": schedule_data['enabled'],
+                    "expiry": int(schedule_data['expiry'])
+                })
             irrigation_schedules = new_schedules
             save_data('schedules.json', irrigation_schedules)
-            
             refresh_irrigation_schedule()
-            
             response = ujson.dumps(irrigation_schedules)
         else:
             status_code = 400
@@ -203,7 +206,7 @@ def refresh_irrigation_schedule():
         irrigation_tasks.append(asyncio.create_task(schedule_irrigation(i)))
 
 async def schedule_irrigation(irrigation_id: int):
-    print(f"@{time.time()} irrigation_schedules[{irrigation_id}] Starting => {irrigation_schedules[irrigation_id]}")
+    print(f"@{time.time()} irrigation_schedules[{irrigation_id}] New task => {irrigation_schedules[irrigation_id]}")
     while True:
         i = irrigation_schedules[irrigation_id]
         if 'expiry' in i and time.time() > i['expiry']-local_time_lag:
