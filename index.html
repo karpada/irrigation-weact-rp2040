@@ -80,15 +80,86 @@
             }
         }
 
+        let schedules = [];
+
         async function fetchSchedules() {
-            const response = await fetch('/schedules');
-            const schedules = await response.json();
-            const schedulesList = document.getElementById('schedules-list');
-            schedulesList.innerHTML = schedules.map((schedule, index) => `
-                <div class="mb-2">
-                    <strong>${index}:</strong> Zone ${schedule.zone_id}, Start: ${schedule.start_time}, Duration: ${schedule.duration_ms}ms
-                </div>
-            `).join('');
+            try {
+                const response = await fetch('/schedules');
+                schedules = await response.json();
+                renderSchedulesTable();
+            } catch (error) {
+                console.error('Error fetching schedules:', error);
+            }
+        }
+
+        function renderSchedulesTable() {
+            const schedulesTable = document.getElementById('schedules-table');
+            schedulesTable.innerHTML = `
+                <table class="w-full">
+                    <thead>
+                        <tr>
+                            <th class="border px-4 py-2">ID</th>
+                            <th class="border px-4 py-2">Zone</th>
+                            <th class="border px-4 py-2">Start Time</th>
+                            <th class="border px-4 py-2">Duration</th>
+                            <th class="border px-4 py-2">Expiry</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${schedules.map((schedule, index) => `
+                            <tr>
+                                <td class="border px-4 py-2">${index}</td>
+                                <td class="border px-4 py-2">${zones[schedule.zone_id].name}</td>
+                                <td class="border px-4 py-2">${schedule.start_time}</td>
+                                <td class="border px-4 py-2">${schedule.duration_ms}ms</td>
+                                <td class="border px-4 py-2">${new Date(schedule.expiry * 1000).toLocaleDateString()}</td>
+                                <td class="border px-4 py-2"><button onclick="removeSchedule(${index})" class="bg-red-500 text-white px-2 py-1 rounded">Remove</button></td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+        }
+
+        function addSchedule() {
+            const zoneSelect = document.getElementById('zone-select');
+            if (zoneSelect.value === '') {
+                alert('Please select a zone.');
+                return;
+            }
+
+            schedules.push({
+                zone_id: parseInt(zoneSelect.value),
+                start_time: new Date().toISOString(),
+                duration_ms: 0,
+                expiry: Math.floor(new Date().getTime() / 1000),
+            });
+            renderSchedulesTable();
+        }
+
+        function removeSchedule(index) {
+            schedules.splice(index, 1);
+            renderSchedulesTable();
+        }
+
+        async function saveSchedules() {
+            try {
+                const response = await fetch('/schedules', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(schedules),
+                });
+                if (response.ok) {
+                    alert('Schedules saved successfully!');
+                } else {
+                    alert('Error saving schedules. Please try again.');
+                }
+            } catch (error) {
+                console.error('Error saving schedules:', error);
+                alert('Error saving schedules. Please try again.');
+            }
         }
 
         async function fetchTime() {
@@ -136,8 +207,11 @@
 
             <div class="bg-white p-4 rounded shadow">
                 <h2 class="text-xl font-semibold mb-2">Schedules</h2>
-                <div id="schedules-list"></div>
-                <button class="mt-2 bg-blue-500 text-white px-4 py-2 rounded">Add Schedule</button>
+                <div id="schedules-table"></div>
+                <div class="mt-2 flex space-x-2">
+                    <button onclick="addSchedule()" class="bg-blue-500 text-white px-4 py-2 rounded">Add Schedule</button>
+                    <button onclick="saveSchedules()" class="bg-green-500 text-white px-4 py-2 rounded">Save Schedules</button>
+                </div>
             </div>
         </div>
 
