@@ -19,7 +19,6 @@
                 <div id="zones-table"></div>
                 <div class="mt-2 flex space-x-2">
                     <button onclick="addZone()" class="bg-blue-500 text-white px-4 py-2 rounded">Add Zone</button>
-                    <button onclick="saveZones()" class="bg-green-500 text-white px-4 py-2 rounded">Save Zones</button>
                 </div>
             </div>
 
@@ -28,7 +27,6 @@
                 <div id="schedules-table"></div>
                 <div class="mt-2 flex space-x-2">
                     <button onclick="addSchedule()" class="bg-blue-500 text-white px-4 py-2 rounded">Add Schedule</button>
-                    <button onclick="saveSchedules()" class="bg-green-500 text-white px-4 py-2 rounded">Save Schedules</button>
                 </div>
             </div>
         </div>
@@ -37,11 +35,14 @@
             <h2 class="text-xl font-semibold mb-2">Sensor Data</h2>
             <p>Soil Moisture: <span id="soil-moisture"></span></p>
         </div>
+
+        <div class="mt-4 flex justify-center">
+            <button onclick="saveConfig()" class="bg-green-500 text-white px-6 py-2 rounded text-lg">Save Configuration</button>
+        </div>
     </div>
 
     <script>
-        let zones = [];
-        let schedules = [];
+        let config = { zones: [], schedules: [] };
 
         function updateTime() {
             fetch('/time')
@@ -52,111 +53,6 @@
                 });
         }
 
-        function updateZonesTable() {
-            const table = document.getElementById('zones-table');
-            table.innerHTML = `
-                <table class="w-full">
-                    <thead>
-                        <tr>
-                            <th>Name</th>
-                            <th>On Pin</th>
-                            <th>Off Pin</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${zones.map((zone, index) => `
-                            <tr>
-                                <td class="border px-4 py-2"><input type="text" value="${zone.name}" onchange="updateZone(${index}, 'name', this.value)"></td>
-                                <td class="border px-4 py-2"><input type="number" value="${zone.on_pin}" onchange="updateZone(${index}, 'on_pin', this.value)"></td>
-                                <td class="border px-4 py-2"><input type="number" value="${zone.off_pin}" onchange="updateZone(${index}, 'off_pin', this.value)"></td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-            `;
-        }
-
-        function updateSchedulesTable() {
-            const table = document.getElementById('schedules-table');
-            table.innerHTML = `
-                <table class="w-full">
-                    <thead>
-                        <tr>
-                            <th>Zone</th>
-                            <th>Start Time</th>
-                            <th>Duration (ms)</th>
-                            <th>Expiry</th>
-                            <th>Enabled</th>
-                            <th>Delete</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${schedules.map((schedule, index) => `
-                            <tr>
-                                <td class="border px-4 py-2">
-                                    <select onchange="updateSchedule(${index}, 'zone_id', this.value)">
-                                        ${zones.map((zone, zoneIndex) => `
-                                            <option value="${zoneIndex}" ${schedule.zone_id === zoneIndex ? 'selected' : ''}>${zone.name}</option>
-                                        `).join('')}
-                                    </select>
-                                </td>
-                                <td class="border px-4 py-2"><input type="time" value="${schedule.start_time}" onchange="updateSchedule(${index}, 'start_time', this.value)"></td>
-                                <td class="border px-4 py-2"><input type="number" value="${schedule.duration_ms}" onchange="updateSchedule(${index}, 'duration_ms', this.value)"></td>
-                                <td class="border px-4 py-2"><input type="datetime-local" value="${new Date(schedule.expiry * 1000).toISOString().slice(0, 16)}" onchange="updateSchedule(${index}, 'expiry', new Date(this.value).getTime() / 1000)"></td>
-                                <td class="border px-4 py-2"><input type="checkbox" ${schedule.enabled ? 'checked' : ''} onchange="updateSchedule(${index}, 'enabled', this.checked)"></td>
-                                <td class="border px-4 py-2"><button onclick="removeSchedule(${index})" class="bg-red-500 text-white px-2 py-1 rounded">X</button></td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-            `;
-        }
-
-        function updateZone(index, field, value) {
-            zones[index][field] = value;
-        }
-
-        function updateSchedule(index, field, value) {
-            schedules[index][field] = value;
-        }
-
-        function addZone() {
-            zones.push({ name: 'New Zone', on_pin: 0, off_pin: 0 });
-            updateZonesTable();
-        }
-
-        function addSchedule() {
-            schedules.push({
-                zone_id: 0,
-                start_time: '00:00',
-                duration_ms: 300000,
-                expiry: Math.floor(Date.now() / 1000) + 86400 * 30,
-                enabled: true
-            });
-            updateSchedulesTable();
-        }
-
-        function removeSchedule(index) {
-            schedules.splice(index, 1);
-            updateSchedulesTable();
-        }
-
-        function saveZones() {
-            fetch('/zones', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(zones)
-            }).then(() => alert('Zones saved!'));
-        }
-
-        function saveSchedules() {
-            fetch('/schedules', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(schedules)
-            }).then(() => alert('Schedules saved!'));
-        }
-
         function updateSoilMoisture() {
             fetch('/sensor')
                 .then(response => response.json())
@@ -165,26 +61,152 @@
                 });
         }
 
-        // Initial data load
-        Promise.all([
-            fetch('/zones').then(response => response.json()),
-            fetch('/schedules').then(response => response.json())
-        ]).then(([zonesData, schedulesData]) => {
-            zones = zonesData;
-            schedules = schedulesData;
-            updateZonesTable();
-            updateSchedulesTable();
-        });
+        function renderZones() {
+            const zonesTable = document.getElementById('zones-table');
+            zonesTable.innerHTML = `
+                <table class="w-full">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>On Pin</th>
+                            <th>Off Pin</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${config.zones.map((zone, index) => `
+                            <tr>
+                                <td class="border px-4 py-2"><input type="text" value="${zone.name}" onchange="updateZone(${index}, 'name', this.value)"></td>
+                                <td class="border px-4 py-2"><input type="number" value="${zone.on_pin}" onchange="updateZone(${index}, 'on_pin', this.value)"></td>
+                                <td class="border px-4 py-2"><input type="number" value="${zone.off_pin}" onchange="updateZone(${index}, 'off_pin', this.value)"></td>
+                                <td class="border px-4 py-2"><button onclick="removeZone(${index})" class="bg-red-500 text-white px-2 py-1 rounded">Remove</button></td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+        }
 
-        // Update time and soil moisture every 5 seconds
-        setInterval(() => {
+        function renderSchedules() {
+            const schedulesTable = document.getElementById('schedules-table');
+            schedulesTable.innerHTML = `
+                <table class="w-full">
+                    <thead>
+                        <tr>
+                            <th>Zone</th>
+                            <th>Start Time</th>
+                            <th>Duration (minutes)</th>
+                            <th>Enabled</th>
+                            <th>Expiry</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${config.schedules.map((schedule, index) => `
+                            <tr>
+                                <td class="border px-4 py-2">
+                                    <select onchange="updateSchedule(${index}, 'zone_id', this.value)">
+                                        ${config.zones.map((zone, zoneIndex) => `
+                                            <option value="${zoneIndex}" ${schedule.zone_id === zoneIndex ? 'selected' : ''}>${zone.name}</option>
+                                        `).join('')}
+                                    </select>
+                                </td>
+                                <td class="border px-4 py-2"><input type="time" value="${schedule.start_time}" onchange="updateSchedule(${index}, 'start_time', this.value)"></td>
+                                <td class="border px-4 py-2"><input type="number" value="${Math.round(schedule.duration_ms/6000)/10}" onchange="updateSchedule(${index}, 'duration_ms', this.value*60000)"></td>
+                                <td class="border px-4 py-2"><input type="checkbox" ${schedule.enabled ? 'checked' : ''} onchange="updateSchedule(${index}, 'enabled', this.checked)" class="w-4 h-4"></td>
+                                <td class="border px-4 py-2"><input type="datetime-local" value="${new Date(schedule.expiry * 1000).toISOString().slice(0, 16)}" onchange="updateSchedule(${index}, 'expiry', new Date(this.value).getTime() / 1000)"></td>
+                                <td class="border px-4 py-2"><button onclick="removeSchedule(${index})" class="bg-red-500 text-white px-2 py-1 rounded">Remove</button></td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+        }
+
+        function updateZone(index, field, value) {
+            config.zones[index][field] = value;
+            renderZones();
+            renderSchedules();
+        }
+
+        function updateSchedule(index, field, value) {
+            config.schedules[index][field] = value;
+            renderSchedules();
+        }
+
+        function addZone() {
+            config.zones.push({ name: "New Zone", on_pin: 0, off_pin: 0 });
+            renderZones();
+            renderSchedules();
+        }
+
+        function removeZone(index) {
+            config.zones.splice(index, 1);
+            config.schedules = config.schedules.filter(schedule => schedule.zone_id !== index);
+            config.schedules.forEach(schedule => {
+                if (schedule.zone_id > index) {
+                    schedule.zone_id--;
+                }
+            });
+            renderZones();
+            renderSchedules();
+        }
+
+        function addSchedule() {
+            if (config.zones.length === 0) {
+                alert("Please add at least one zone before creating a schedule.");
+                return;
+            }
+            config.schedules.push({
+                zone_id: 0,
+                start_time: "00:00",
+                duration_ms: 600000,
+                enabled: true,
+                expiry: Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60
+            });
+            renderSchedules();
+        }
+
+        function removeSchedule(index) {
+            config.schedules.splice(index, 1);
+            renderSchedules();
+        }
+
+        function saveConfig() {
+            fetch('/config', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(config),
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Config saved:', data);
+                alert('Configuration saved successfully!');
+            })
+            .catch((error) => {
+                console.error('Error:', error);
+                alert('Error saving configuration');
+            });
+        }
+
+        function init() {
             updateTime();
             updateSoilMoisture();
-        }, 5000);
+            setInterval(updateTime, 1000);
+            setInterval(updateSoilMoisture, 5000);
 
-        // Initial updates
-        updateTime();
-        updateSoilMoisture();
+            fetch('/config')
+                .then(response => response.json())
+                .then(data => {
+                    config = data;
+                    renderZones();
+                    renderSchedules();
+                });
+        }
+
+        init();
     </script>
 </body>
 </html>
