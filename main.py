@@ -127,6 +127,7 @@ async def handle_request(reader, writer):
     filename = None
     if method_path.startswith('GET / HTTP'):
         # Serve the HTML file for the root route
+        # curl example: curl http://[ESP32_IP]/
         filename = 'index.html'
         content_type = 'text/html'
     elif method_path.startswith('GET /zones'):
