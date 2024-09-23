@@ -4,6 +4,7 @@ from machine import Pin, ADC
 import ujson
 import ntptime
 import uasyncio as asyncio
+import urequests as requests
 
 # Persistent storage functions
 def save_data(filename: str, data: dict) -> None:
@@ -236,6 +237,11 @@ async def handle_request(reader, writer):
     writer.close()
     await writer.wait_closed()
 
+async def send_status():
+    while True:
+        requests.get(f"http://api.thingspeak.com/update?api_key={config['options'].get('thingsspeak_apikey', 'RDO96UXJ98Y8OZW9')}&field1={read_soil_moisture()}").close()
+        await asyncio.sleep(300)
+
 async def main():
     await connect_wifi()
     if not wlan.isconnected():
@@ -244,6 +250,7 @@ async def main():
 
     asyncio.create_task(keep_wifi_connected())
     asyncio.create_task(periodic_ntp_sync())
+    asyncio.create_task(send_status())
 
     apply_config(config)
 
