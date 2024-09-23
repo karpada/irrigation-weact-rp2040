@@ -49,8 +49,9 @@
             <p>Soil Moisture: <span id="soil-moisture"></span></p>
         </div>
 
-        <div class="mt-4 flex justify-center">
-            <button onclick="saveConfig()" class="bg-green-500 text-white px-6 py-2 rounded text-lg">Save Configuration</button>
+        <div class="mt-4 flex space-x-2">
+            <button onclick="saveConfig()" class="bg-green-500 text-white px-6 py-2 rounded text-lg">Apply Configuration</button>
+            <a class="bg-green-500 text-white px-6 py-2 rounded text-lg" href="/config" download="irrigation-config.json"><button>Backup config</button></a>
         </div>
     </div>
 
@@ -129,16 +130,16 @@
                         ${config.schedules.map((schedule, index) => `
                             <tr>
                                 <td class="border px-4 py-2">
-                                    <select onchange="updateSchedule(${index}, 'zone_id', this.value)">
+                                    <select onchange="updateSchedule(${index}, 'zone_id', Number(this.value))">
                                         ${config.zones.map((zone, zoneIndex) => `
-                                            <option value="${zoneIndex}" ${schedule.zone_id === zoneIndex ? 'selected' : ''}>${zone.name}</option>
+                                            <option value=${zoneIndex} ${schedule.zone_id === zoneIndex ? 'selected' : ''}>${zone.name}</option>
                                         `).join('')}
                                     </select>
                                 </td>
                                 <td class="border px-4 py-2"><input type="time" value="${schedule.start_time}" onchange="updateSchedule(${index}, 'start_time', this.value)"></td>
                                 <td class="border px-4 py-2"><input type="number" value="${Math.round(schedule.duration_ms/6000)/10}" onchange="updateSchedule(${index}, 'duration_ms', this.value*60000)"></td>
                                 <td class="border px-4 py-2"><input type="checkbox" ${schedule.enabled ? 'checked' : ''} onchange="updateSchedule(${index}, 'enabled', this.checked)" class="w-4 h-4"></td>
-                                <td class="border px-4 py-2"><input type="datetime-local" value="${new Date(schedule.expiry * 1000).toISOString().slice(0, 16)}" onchange="updateSchedule(${index}, 'expiry', new Date(this.value).getTime() / 1000)"></td>
+                                <td class="border px-4 py-2"><input type="datetime-local" value="${schedule.expiry ? new Date(schedule.expiry * 1000).toISOString().slice(0, 16) : ""}" onchange="updateSchedule(${index}, 'expiry', this.value ? new Date(this.value).getTime() / 1000) : 0"></td>
                                 <td class="border px-4 py-2"><button onclick="removeSchedule(${index})" class="bg-red-500 text-white px-2 py-1 rounded">Remove</button></td>
                             </tr>
                         `).join('')}
@@ -186,7 +187,7 @@
                 start_time: "00:00",
                 duration_ms: 600000,
                 enabled: true,
-                expiry: Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60
+                expiry: 0,
             });
             renderSchedules();
         }

@@ -1,5 +1,4 @@
 import network
-import socket
 import utime as time
 from machine import Pin, ADC
 import ujson
@@ -23,7 +22,7 @@ config: dict = load_data('config.json')
 local_time_lag: int = 3155673600 - 2208988800  # 1970-2000
 
 # Pins
-soil_sensor: ADC = ADC(config['options'].get('soil_moisture_pin', 0))
+soil_sensor: ADC = None
 
 
 # WiFi connection
@@ -87,7 +86,7 @@ async def schedule_irrigation(irrigation_id: int):
     print(f"@{time.time()} config['schedules'][{irrigation_id}] New task => {config['schedules'][irrigation_id]}")
     while True:
         i = config["schedules"][irrigation_id]
-        if 'expiry' in i and time.time() > i['expiry']-local_time_lag:
+        if i['expiry'] and time.time() > i['expiry']-local_time_lag:
             print(f"Schedule {irrigation_id} has expired")
             break
         hour, minute = map(int, i['start_time'].split(':'))
@@ -103,15 +102,24 @@ async def schedule_irrigation(irrigation_id: int):
         control_watering(i['zone_id'], False)
 
 irrigation_tasks: list[asyncio.Task] = []
-def refresh_irrigation_schedule():
+def apply_config(new_config: dict = None):
+    global config
+    global soil_sensor
+
+    if not new_config:
+        raise ValueError("cowardly refusing to apply empty config")
+
+    config = new_config
+    soil_sensor = ADC(config['options'].get('soil_moisture_pin', 0))
     for task in irrigation_tasks:
         task.cancel()
     irrigation_tasks.clear()
     for i, schedule in enumerate(config["schedules"]):
         irrigation_tasks.append(asyncio.create_task(schedule_irrigation(i)))
+    save_data('config.json', config)
 
 def read_soil_moisture() -> int:
-    return soil_sensor.read()
+    return soil_sensor.read() if soil_sensor else None
 
 # HTTP server
 async def serve_file(filename: str, writer) -> None:
@@ -149,8 +157,6 @@ def get_status_message(status_code):
     return status_messages.get(status_code, "Unknown")
 
 async def handle_request(reader, writer):
-    global config
-
     content_type = 'application/json'
     status_code = 200
     filename = None
@@ -172,7 +178,8 @@ async def handle_request(reader, writer):
             # curl example: curl http://[ESP32_IP]/config
             response = ujson.dumps(config)
         elif method_path.startswith('POST /config'):
-            print(f"body = {body}, isinstance(body, list) = {isinstance(body, list)}")
+            # restore backup: jq . irrigation-config.json | curl -H "Content-Type: application/json" -X POST --data-binary @- http://192.168.68.ESP/config
+            print(f"body = {body}, isinstance(body, dict) = {isinstance(body, dict)}")
             new_config = {"zones": [], "schedules": [], "options": {}}
             for zone_data in body['zones']:
                 new_config['zones'].append({
@@ -186,19 +193,16 @@ async def handle_request(reader, writer):
                     "start_time": schedule_data['start_time'],
                     "duration_ms": int(schedule_data['duration_ms']),
                     "enabled": schedule_data['enabled'],
-                    "expiry": int(schedule_data['expiry']),
+                    "expiry": int(schedule_data.get('expiry', 0)),
                 })
             new_config['options'] = {
-                "soil_moisture_pin": int(body['options'].get('soil_moisture_pin', None)),
-                "soil_moisture_threshold": int(body['options'].get('soil_moisture_threshold', None)),
+                "soil_moisture_pin": int(body['options'].get('soil_moisture_pin', -1)),
+                "soil_moisture_threshold": int(body['options'].get('soil_moisture_threshold', -1)),
                 # "wifi_ssid": str(body['options'].get('wifi_ssid', None)),
                 # "wifi_password": str(body['options'].get('wifi_password', None)),
             }
-            config = new_config
-            refresh_irrigation_schedule()
-            save_data('config.json', config)
-            response = ujson.dumps(config)
-
+            apply_config(new_config)
+            response = ujson.dumps(new_config)
 
         elif method_path.startswith('GET /status'):
             response = ujson.dumps({
@@ -216,7 +220,7 @@ async def handle_request(reader, writer):
         await writer.drain()
         writer.close()
         await writer.wait_closed()
-        return
+        raise
 
     writer.write(f'HTTP/1.0 {status_code} {get_status_message(status_code)}\r\nContent-type: {content_type}\r\n\r\n')
     if filename:
@@ -236,7 +240,7 @@ async def main():
     asyncio.create_task(keep_wifi_connected())
     asyncio.create_task(periodic_ntp_sync())
 
-    refresh_irrigation_schedule()
+    apply_config(config)
 
     server = await asyncio.start_server(handle_request, "0.0.0.0", 80)
     print('Server listening on port 80')
