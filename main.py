@@ -6,51 +6,6 @@ import ujson
 import ntptime
 import uasyncio as asyncio
 
-# Wi-Fi connection
-ssid: str = 'Pita'
-password: str = '***REMOVED***'
-
-local_time_lag: int = 3155673600 - 2208988800  # 1970-2000
-
-# Pins
-soil_sensor: ADC = ADC(0)
-
-# Connect to WLAN
-wlan: network.WLAN = network.WLAN(network.STA_IF)
-wlan.active(True)
-wlan.connect(ssid, password)
-
-# Wait for connect or fail
-async def connect_wifi():
-    max_wait: int = 10
-    while max_wait > 0:
-        if wlan.isconnected():
-            break
-        max_wait -= 1
-        print('waiting for connection...')
-        await asyncio.sleep(1)
-
-    if not wlan.isconnected():
-        raise RuntimeError('network connection failed')
-    else:
-        print('connected')
-        status: tuple = wlan.ifconfig()
-        print('ip = ' + status[0])
-
-# Sync time with NTP
-async def sync_ntp() -> None:
-    try:
-        ntptime.settime()
-        print("Time synced with NTP server")
-    except:
-        print("Error syncing time")
-
-async def periodic_ntp_sync():
-    while True:
-        await asyncio.sleep(24 * 60 * 60)  # 24 hours
-        await sync_ntp()
-
-
 # Persistent storage functions
 def save_data(filename: str, data: dict) -> None:
     print(f"Saving data to {filename}")
@@ -64,6 +19,55 @@ def load_data(filename: str) -> dict:
     except:
         return {"zones": [], "schedules": [], "options": {}}
 config: dict = load_data('config.json')
+
+local_time_lag: int = 3155673600 - 2208988800  # 1970-2000
+
+# Pins
+soil_sensor: ADC = ADC(config['options'].get('soil_moisture_pin', 0))
+
+
+# WiFi connection
+wlan: network.WLAN = network.WLAN(network.STA_IF)
+async def connect_wifi() -> None:
+    wlan.active(True)
+    wlan.connect(config['options'].get('wifi_ssid', 'Pita'), config['options'].get('wifi_password', '***REMOVED***'))
+    print(f'@{time.time()} wifi connecting.', end='')
+    for i in range(15):
+        if wlan.isconnected():
+            break
+        await asyncio.sleep(1)
+        print('.', end='')
+
+    if not wlan.isconnected():
+        print('network connection failed, retrying in 90 seconds')
+        await asyncio.sleep(90)
+    else:
+        print('connected')
+        status: tuple = wlan.ifconfig()
+        print('ip = ' + status[0])
+
+async def keep_wifi_connected():
+    while True:
+        while wlan.isconnected():
+            await asyncio.sleep(5)
+        print(f'@{time.time()} No wifi connection, attempting to reconnect.')
+        await connect_wifi()
+
+
+# Sync time with NTP
+async def sync_ntp() -> bool:
+    try:
+        ntptime.settime()
+        return True
+    except:
+        print("Error syncing time")
+        return False
+
+async def periodic_ntp_sync():
+    while True:
+        await asyncio.sleep(24 * 60 * 60)  # 24 hours
+        while not await sync_ntp():
+            await asyncio.sleep(30 * 60) # 30 minutes
 
 # Watering control functions
 def control_watering(zone_id: int, start: bool) -> None:
@@ -174,7 +178,7 @@ async def handle_request(reader, writer):
                 new_config['zones'].append({
                     "name": str(zone_data['name']),
                     "on_pin": int(zone_data['on_pin']),
-                    "off_pin": int(zone_data['off_pin'])
+                    "off_pin": int(zone_data['off_pin']),
                 })
             for schedule_data in body['schedules']:
                 new_config['schedules'].append({
@@ -182,9 +186,14 @@ async def handle_request(reader, writer):
                     "start_time": schedule_data['start_time'],
                     "duration_ms": int(schedule_data['duration_ms']),
                     "enabled": schedule_data['enabled'],
-                    "expiry": int(schedule_data['expiry'])
+                    "expiry": int(schedule_data['expiry']),
                 })
-            new_config['options'] = {}
+            new_config['options'] = {
+                "soil_moisture_pin": int(body['options'].get('soil_moisture_pin', None)),
+                "soil_moisture_threshold": int(body['options'].get('soil_moisture_threshold', None)),
+                # "wifi_ssid": str(body['options'].get('wifi_ssid', None)),
+                # "wifi_password": str(body['options'].get('wifi_password', None)),
+            }
             config = new_config
             refresh_irrigation_schedule()
             save_data('config.json', config)
@@ -220,9 +229,11 @@ async def handle_request(reader, writer):
 
 async def main():
     await connect_wifi()
-    await sync_ntp()
+    if not wlan.isconnected():
+        # we can go to wifi setup mode
+        print("WiFi connection failed on startup, starting irrigation scheduler, retry reconnecting in background")
 
-    # Schedule regular NTP sync (every 24 hours)
+    asyncio.create_task(keep_wifi_connected())
     asyncio.create_task(periodic_ntp_sync())
 
     refresh_irrigation_schedule()
