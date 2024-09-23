@@ -162,22 +162,27 @@ async def handle_request(reader, writer):
     filename = None
 
     try:
-        method_path = (await reader.readline()).decode().strip()
+        method, path, _ = (await reader.readline()).decode().strip().split(' ')
+        path, query_params = path.split('?') if '?' in path else (path, None)
+        query_params = dict([param.split('=') for param in query_params.split('&')]) if query_params else {}
+
         headers = await read_headers(reader)
         content_length = int(headers.get('content-length', '0'))
 
-        print(f"@{time.time()} Handling request: {method_path} (content_length={content_length})")  #     headers={headers}")
+        print(f"@{time.time()} Handling request: method={method} path={path}, query_params={query_params}, (content_length={content_length})")  #     headers={headers}")
 
         body = ujson.loads((await reader.read(content_length)).decode()) if content_length > 0 else None
 
-        if method_path.startswith('GET / HTTP'):
+        if method == 'GET' and path == '/':
             filename = 'index.html'
             content_type = 'text/html'
-
-        elif method_path.startswith('GET /config'):
+        elif method == 'GET' and path == '/favicon.ico':
+            content_type = 'image/svg+xml'
+            response = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><path d="M50 5 C30 5 5 35 5 60 C5 85 25 95 50 95 C75 95 95 85 95 60 C95 35 70 5 50 5Z" fill="#4FC3F7" stroke="#29B6F6" stroke-width="2"/><ellipse cx="30" cy="35" rx="10" ry="15" fill="#81D4FA" transform="rotate(-35 30 35)"/></svg>'
+        elif method == 'GET' and path == '/config':
             # curl example: curl http://[ESP32_IP]/config
             response = ujson.dumps(config)
-        elif method_path.startswith('POST /config'):
+        elif method == 'POST' and path == '/config':
             # restore backup: jq . irrigation-config.json | curl -H "Content-Type: application/json" -X POST --data-binary @- http://192.168.68.ESP/config
             print(f"body = {body}, isinstance(body, dict) = {isinstance(body, dict)}")
             new_config = {"zones": [], "schedules": [], "options": {}}
@@ -204,14 +209,14 @@ async def handle_request(reader, writer):
             apply_config(new_config)
             response = ujson.dumps(new_config)
 
-        elif method_path.startswith('GET /status'):
+        elif method == 'GET' and path == '/status':
             response = ujson.dumps({
                 "time_ms": int(time.time()+local_time_lag) * 1000,
                 "soil_moisture": read_soil_moisture(),
             })
 
         else:
-            response = f"Resource not found: {method_path}"
+            response = f"Resource not found: method={method} path={path}"
             status_code = 404
 
     except Exception as e:
