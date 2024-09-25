@@ -201,11 +201,23 @@ async def handle_request(reader, writer):
                     "enabled": schedule_data['enabled'],
                     "expiry": int(schedule_data.get('expiry', 0)),
                 })
+            bo = body['options']
             new_config['options'] = {
-                "soil_moisture_pin": int(body['options'].get('soil_moisture_pin', -1)),
-                "soil_moisture_threshold": int(body['options'].get('soil_moisture_threshold', -1)),
-                # "wifi_ssid": str(body['options'].get('wifi_ssid', None)),
-                # "wifi_password": str(body['options'].get('wifi_password', None)),
+                "wifi": {
+                    "ssid": str(bo['wifi'].get('ssid', 'Pita')),
+                    "password": str(bo['wifi'].get('password', '***REMOVED***')),
+                },
+                "soil_moisture": {
+                    "pin_id": int(bo['soil_moisture'].get('pin_id', -1)),
+                    "threshold_low": int(bo['soil_moisture'].get('threshold_low', -1)),
+                    "threshold_high": int(bo['soil_moisture'].get('threshold_high', -1)),
+                },
+                "monitoring": {
+                    "thingsspeak_apikey": str(bo['monitoring'] .get('thingsspeak_apikey', 'RDO96UXJ98Y8OZW9')),
+                },
+                "settings": {
+                    "pause_hours": round((bo['settings'].get('pause_hours', 0)), 1),
+                },
             }
             apply_config(new_config)
             response = ujson.dumps(new_config)
