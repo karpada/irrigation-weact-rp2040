@@ -180,6 +180,18 @@ async def handle_request(reader, writer):
         elif method == 'GET' and path == '/favicon.ico':
             content_type = 'image/svg+xml'
             response = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><path d="M50 5 C30 5 5 35 5 60 C5 85 25 95 50 95 C75 95 95 85 95 60 C95 35 70 5 50 5Z" fill="#4FC3F7" stroke="#29B6F6" stroke-width="2"/><ellipse cx="30" cy="35" rx="10" ry="15" fill="#81D4FA" transform="rotate(-35 30 35)"/></svg>'
+        elif method == 'GET' and path == '/pulse':
+            if pin_id not in query_params:
+                status_code = 400
+                response = 'Missing pin_id'
+            else:
+                pin_id = int(query_params['pin_id'])
+                pin = Pin(pin_id, Pin.OUT)
+                pin.value(1)
+                time.sleep(1)
+                pin.value(0)
+                Pin(pin_id, Pin.IN)
+                response = 'Pulse sent'
         elif method == 'GET' and path == '/config':
             # curl example: curl http://[ESP32_IP]/config
             response = ujson.dumps(config)
