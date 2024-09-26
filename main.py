@@ -214,6 +214,8 @@ async def handle_request(reader, writer):
                     "expiry": int(schedule_data.get('expiry', 0)),
                 })
             bo = body['options']
+            for key in ['wifi', 'soil_moisture', 'monitoring', 'settings']:
+                bo.setdefault(key, {})
             new_config['options'] = {
                 "wifi": {
                     "ssid": str(bo['wifi'].get('ssid', 'Pita')),
