@@ -257,9 +257,11 @@ async def handle_request(reader, writer):
             response = ujson.dumps(config)
             save_data('config.json', config)
         elif method == 'GET' and path == '/status':
+            # tt = time.gmtime()
             response = ujson.dumps({
                 "timestamp_ms": int(time.time() + micropython_to_timestamp) * 1000,
                 "local_timestamp": int(time.time() + micropython_to_localtime),
+                # "local_time": f"{tt[0]}-{tt[1]:02}-{tt[2]:02}T{tt[3]:02}:{tt[4]:02}:{tt[5]:02}{config['options']['settings']['timezone_offset']:+}",
                 "soil_moisture": read_soil_moisture(),
                 "gc.mem_alloc": gc.mem_alloc(),
                 "valveStatus": valveStatus,
