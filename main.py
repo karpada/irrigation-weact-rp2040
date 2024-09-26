@@ -149,6 +149,7 @@ def apply_config(new_config: dict = None):
         "settings": {
             "pause_hours": round((bo['settings'].get('pause_hours', 0)), 1),
             "timezone_offset": float(bo['settings'].get('timezone_offset', -7)),
+            "relay_pin": int(bo['settings'].get('relay_pin', 14)),
         },
     }
 
@@ -251,7 +252,7 @@ async def handle_request(reader, writer):
             response = ujson.dumps(config)
         elif method == 'POST' and path == '/config':
             # restore backup: jq . irrigation-config.json | curl -H "Content-Type: application/json" -X POST --data-binary @- http://192.168.68.ESP/config
-            print(f"body = {body}, isinstance(body, dict) = {isinstance(body, dict)}")
+            print(f"applying new config = {body}")
             apply_config(body)
             response = ujson.dumps(config)
             save_data('config.json', config)
@@ -287,6 +288,7 @@ async def handle_request(reader, writer):
 
 async def send_metrics():
     while True:
+        # TODO: add micropython.mem_info()
         if 'thingsspeak_apikey' in config['options']['monitoring']:
             requests.get(f"http://api.thingspeak.com/update?api_key={config['options']['monitoring']['thingsspeak_apikey']}&field1={read_soil_moisture()}&field2={gc.mem_alloc()}&field3={valveStatus}").close()
         await asyncio.sleep(300)
