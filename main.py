@@ -12,9 +12,8 @@ micropython_to_timestamp: int = 3155673600 - 2208988800  # 1970-2000
 micropython_to_localtime: int = None
 soil_sensor: ADC = None
 wlan: network.WLAN = network.WLAN(network.STA_IF)
-irrigation_tasks: list[asyncio.Task] = []
 config: dict = None
-valveStatus: int = 0
+valve_status: int = 0
 # id: str = ':'.join([f"{b:02X}" for b in wlan.config('mac')[3:]]) FIXME: memory allocation failed, no idea why
 
 # Persistent storage functions
@@ -55,15 +54,17 @@ async def keep_wifi_connected():
 
 
 # Time functions
-def get_weekday() -> int:
-    # weekday is 0-6 for Mon-Sun
-    return ((time.time()+micropython_to_localtime) // 86400 + 3) % 7
+def local_timestamp() -> int:
+    return time.time()+micropython_to_localtime
+
+def weekday(timestamp: int) -> int:
+    # weekday is 0-6 for Mon-Sun.
+    return ((timestamp or local_timestamp()) // 86400 + 3) % 7
 
 async def sync_ntp() -> bool:
     try:
         ntptime.settime()
-        tt = time.gmtime()
-        print(f'@{time.time()} Time synced with NTP, UTC timestamp={time.time()+micropython_to_timestamp}( {tt[0]}{tt[1]:02}{tt[2]:02}T{tt[3]:02}{tt[4]:02}{tt[5]:02}Z ). Local timestamp(GMT{config['options']['settings']['timezone_offset']:+})={time.time()+micropython_to_localtime}')
+        print(f'@{time.time()} Time synced with NTP, UTC timestamp={time.time()+micropython_to_timestamp} Local timestamp(GMT{config['options']['settings']['timezone_offset']:+})={time.time()+micropython_to_localtime}')
         return True
     except:
         print(f'@{time.time()} Error syncing time, current UTC timestamp={time.time()+micropython_to_timestamp}')
@@ -71,9 +72,9 @@ async def sync_ntp() -> bool:
 
 async def periodic_ntp_sync():
     while True:
+        await asyncio.sleep(24 * 60 * 60)  # 24 hours, assuming we are already synced
         while not await sync_ntp():
             await asyncio.sleep(10) # 10 seconds
-        await asyncio.sleep(24 * 60 * 60)  # 24 hours
 
 # Watering control functions
 def control_watering(zone_id: int, start: bool) -> None:
@@ -81,43 +82,83 @@ def control_watering(zone_id: int, start: bool) -> None:
         print(f"Zone {zone_id} not found")
         return
     zone = config["zones"][zone_id]
-    print(f"{'Started' if start else 'Stopped'} watering zone {zone_id}")
     pin_id = zone['on_pin'] if start else zone['off_pin']
+    print(f"Zones[{zone_id}]='{zone['name']}' (off_pin={zone['off_pin']}, on_pin={zone['on_pin']}) will be set {start} using pulse({pin_id})")
     pin = Pin(pin_id, Pin.OUT)
     pin.value(1)
-    time.sleep(0.06)
+    time.sleep(0.060)
     pin.value(0)
     Pin(pin_id, Pin.IN)
 
-async def schedule_irrigation(irrigation_id: int):
-    print(f"@{time.time()} config['schedules'][{irrigation_id}] New task => {config['schedules'][irrigation_id]}")
+
+async def apply_valves(new_status: int) -> None:
+    global valve_status
+
+    if new_status == valve_status:
+        return
+
+    print(f"@{time.time()} apply_valves(new_status={new_status:08b}), current valve_status={valve_status:08b}")
+
+    if relay_pin:=config['options']['settings']['relay_pin'] >= 0:
+        relay_pin = Pin(relay_pin, Pin.OUT)
+        relay_pin.value(1)
+        await asyncio.sleep(0.100) # wait for H-Bridges to power up
+    else:
+        relay_pin = None
+
+    for i in range(len(config['zones'])):
+        if (valve_status^new_status)>>i & 1:
+            control_watering(i, new_status>>i & 1)
+            await asyncio.sleep(0.050) # wait to settle down
+    valve_status = new_status
+
+    if relay_pin:
+        relay_pin.value(0)
+        relay_pin.mode(Pin.IN)
+
+
+async def schedule_irrigation():
+    await asyncio.sleep(5)
     while True:
-        i = config["schedules"][irrigation_id]
-        # if i['expiry'] and time.time() > i['expiry']-local_time_lag:
-        #     print(f"Schedule {irrigation_id} has expired")
-        #     break
-        # hour, minute = map(int, i['start_time'])
-        # now = time.gmtime()
+        valve_desired = 0
+        for s in config["schedules"]:
+            # print(f"@{time.time()} checking schedule={s}")
 
-# FIXME: this is not working, need to fix it !!!!!!!!!!!!!!
+            if not s['enabled']:
+                continue
 
+            if s['expiry'] and local_timestamp() > s['expiry']:
+                continue
 
-        seconds_until = 11111 #((hour - now[3]) * 3600 + (minute - now[4]) * 60 - now[5]) % 86400
-        print(f"@{time.time()} config['schedules'][{irrigation_id}] Waiting {seconds_until} seconds => {config['schedules'][irrigation_id]}")
-        await asyncio.sleep(seconds_until)
-        print(f"@{time.time()} config['schedules'][{irrigation_id}] Starting irrigation of zone[{i['zone_id']}] seconds => {config['schedules'][irrigation_id]}")
-        if i['enabled']:
-            control_watering(i['zone_id'], True)
-        await asyncio.sleep(i['duration_sec'])
-        print(f"@{time.time()} config['schedules'][{irrigation_id}] Stopping irrigation of zone[{i['zone_id']}] seconds => {config['schedules'][irrigation_id]}")
-        control_watering(i['zone_id'], False)
+            sec_till_start = (86400 + s['start_sec'] - local_timestamp() % 86400) % 86400
+            sec_till_end = (sec_till_start + s['duration_sec']) % 86400
+            if sec_till_end > sec_till_start:
+                # print(f"sec_till_start={sec_till_start}, sec_till_end={sec_till_end}")
+                # we are not inside the schedule, skip
+                continue
+
+            # TODO: check week days
+            # weekday_start = weekday(local_timestamp()+sec_till_start) + 6 % 7
+            # if ~s['day_mask'] & (1 << weekday()):
+            #     continue
+
+            # we should irrigate, set the valve status
+            valve_desired |= (1 << s['zone_id'])
+            # print(f"@{time.time()} valve_desired={valve_desired:08b} for schedule={s}")
+
+        # print(f"@{time.time()} valve_desired={valve_desired:08b}")
+        if valve_desired > 0:
+            valve_desired |= 1
+
+        await apply_valves(valve_desired)
+        await asyncio.sleep(2)
 
 # Configuration functions
 def apply_config(new_config: dict = None):
     global config
     global soil_sensor
     global micropython_to_localtime
-    global valveStatus
+    global valve_status
 
     normalized_config = {"zones": [], "schedules": [], "options": {}}
     for zone_data in new_config.get('zones', []):
@@ -165,18 +206,13 @@ def apply_config(new_config: dict = None):
     config = normalized_config
     # assume all zones are on at start, so we can turn them off
     if there_were_no_zones:
-        valveStatus = (1<<len(config['zones']))-1
+        valve_status = (1<<len(config['zones']))-1
 
     micropython_to_localtime = micropython_to_timestamp + round(config['options']['settings']['timezone_offset'] * 3600)
 
     soil_moisture_pin_id = config['options']['soil_moisture'].get('pin_id')
     soil_sensor = ADC(soil_moisture_pin_id) if soil_moisture_pin_id is not None and soil_moisture_pin_id >= 0 else None
 
-    for task in irrigation_tasks:
-        task.cancel()
-    irrigation_tasks.clear()
-    for i, schedule in enumerate(config["schedules"]):
-        irrigation_tasks.append(asyncio.create_task(schedule_irrigation(i)))
 
 def read_soil_moisture() -> int:
     return soil_sensor.read() if soil_sensor else None
@@ -249,7 +285,7 @@ async def handle_request(reader, writer):
                 pin.value(1)
                 time.sleep(1)
                 pin.value(0)
-                Pin(pin_id, Pin.IN)
+                pin.mode(Pin.IN)
                 response = 'Pulse sent'
         elif method == 'GET' and path == '/config':
             # curl example: curl http://[ESP32_IP]/config
@@ -263,12 +299,11 @@ async def handle_request(reader, writer):
         elif method == 'GET' and path == '/status':
             # tt = time.gmtime()
             response = ujson.dumps({
-                "timestamp_ms": int(time.time() + micropython_to_timestamp) * 1000,
                 "local_timestamp": int(time.time() + micropython_to_localtime),
                 # "local_time": f"{tt[0]}-{tt[1]:02}-{tt[2]:02}T{tt[3]:02}:{tt[4]:02}:{tt[5]:02}{config['options']['settings']['timezone_offset']:+}",
                 "soil_moisture": read_soil_moisture(),
                 "gc.mem_alloc": gc.mem_alloc(),
-                "valveStatus": valveStatus,
+                "valveStatus": valve_status,
             })
 
         else:
@@ -296,18 +331,20 @@ async def send_metrics():
     while True:
         # TODO: add micropython.mem_info()
         if 'thingsspeak_apikey' in config['options']['monitoring']:
-            requests.get(f"http://api.thingspeak.com/update?api_key={config['options']['monitoring']['thingsspeak_apikey']}&field1={read_soil_moisture()}&field2={gc.mem_alloc()}&field3={valveStatus}").close()
+            requests.get(f"http://api.thingspeak.com/update?api_key={config['options']['monitoring']['thingsspeak_apikey']}&field1={read_soil_moisture()}&field2={gc.mem_alloc()}&field3={valve_status}").close()
         await asyncio.sleep(300)
 
 async def main():
     await connect_wifi()
-    if not wlan.isconnected():
+    await sync_ntp()
+    # if not wlan.isconnected():
         # we can go to wifi setup mode
-        print("WiFi connection failed on startup, starting irrigation scheduler, will retry reconnecting in background")
+        # print("WiFi connection failed on startup, starting irrigation scheduler, will retry reconnecting in background")
 
     asyncio.create_task(keep_wifi_connected())
     asyncio.create_task(periodic_ntp_sync())
     asyncio.create_task(send_metrics())
+    asyncio.create_task(schedule_irrigation())
 
     server = await asyncio.start_server(handle_request, "0.0.0.0", 80)
     print('Server listening on port 80')
