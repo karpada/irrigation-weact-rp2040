@@ -133,12 +133,12 @@
                                 <td class="border px-4 py-2">
                                     <select onchange="updateSchedule(${index}, 'zone_id', Number(this.value))">
                                         ${config.zones.map((zone, zoneIndex) => `
-                                            <option value=${zoneIndex} ${schedule.zone_id === zoneIndex ? 'selected' : ''}>${zone.name}</option>
+                                            <option value=${zoneIndex} ${schedule.zone_id === zoneIndex ? 'selected' : ''} ${0 === zoneIndex ? 'disabled' : ''}>${zone.name}</option>
                                         `).join('')}
                                     </select>
                                 </td>
-                                <td class="border px-4 py-2"><input type="time" value="${schedule.start_time}" onchange="updateSchedule(${index}, 'start_time', this.value)"></td>
-                                <td class="border px-4 py-2"><input type="number" value="${Math.round(schedule.duration_ms/6000)/10}" onchange="updateSchedule(${index}, 'duration_ms', this.value*60000)"></td>
+                                <td class="border px-4 py-2"><input type="time" value="${String(Math.floor(schedule.start_sec / 3600)).padStart(2, "0")}:${String(Math.floor(schedule.start_sec/60) % 60).padStart(2, "0")}" onchange="updateSchedule(${index}, 'start_sec', this.value)"></td>
+                                <td class="border px-4 py-2"><input type="number" value="${Math.round(schedule.duration_sec/6)/10}" onchange="updateSchedule(${index}, 'duration_sec', this.value*60)"></td>
                                 <td class="border px-4 py-2"><input type="checkbox" ${schedule.enabled ? 'checked' : ''} onchange="updateSchedule(${index}, 'enabled', this.checked)" class="w-4 h-4"></td>
                                 <td class="border px-4 py-2"><input type="datetime-local" value="${schedule.expiry ? new Date(schedule.expiry * 1000).toISOString().slice(0, 16) : ""}" onchange="updateSchedule(${index}, 'expiry', this.value ? new Date(this.value).getTime() / 1000) : 0"></td>
                                 <td class="border px-4 py-2"><button onclick="removeSchedule(${index})" class="bg-red-500 text-white px-2 py-1 rounded">Remove</button></td>
@@ -187,6 +187,10 @@
         }
 
         function updateSchedule(index, field, value) {
+            if ('start_sec' === field) {
+                const [hours, minutes] = value.split(':');
+                value = Number(hours) * 3600 + Number(minutes) * 60;
+            }
             config.schedules[index][field] = value;
             renderSchedules();
         }
@@ -216,8 +220,8 @@
             }
             config.schedules.push({
                 zone_id: 0,
-                start_time: "00:00",
-                duration_ms: 600000,
+                start_sec: "07:00",
+                duration_sec: 600,
                 enabled: true,
                 expiry: 0,
             });

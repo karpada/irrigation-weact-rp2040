@@ -96,15 +96,19 @@ async def schedule_irrigation(irrigation_id: int):
         # if i['expiry'] and time.time() > i['expiry']-local_time_lag:
         #     print(f"Schedule {irrigation_id} has expired")
         #     break
-        hour, minute = map(int, i['start_time'].split(':'))
-        now = time.gmtime()
-        seconds_until = ((hour - now[3]) * 3600 + (minute - now[4]) * 60 - now[5]) % 86400
+        # hour, minute = map(int, i['start_time'])
+        # now = time.gmtime()
+
+# FIXME: this is not working, need to fix it !!!!!!!!!!!!!!
+
+
+        seconds_until = 11111 #((hour - now[3]) * 3600 + (minute - now[4]) * 60 - now[5]) % 86400
         print(f"@{time.time()} config['schedules'][{irrigation_id}] Waiting {seconds_until} seconds => {config['schedules'][irrigation_id]}")
         await asyncio.sleep(seconds_until)
         print(f"@{time.time()} config['schedules'][{irrigation_id}] Starting irrigation of zone[{i['zone_id']}] seconds => {config['schedules'][irrigation_id]}")
         if i['enabled']:
             control_watering(i['zone_id'], True)
-        await asyncio.sleep(i['duration_ms'] / 1000)
+        await asyncio.sleep(i['duration_sec'])
         print(f"@{time.time()} config['schedules'][{irrigation_id}] Stopping irrigation of zone[{i['zone_id']}] seconds => {config['schedules'][irrigation_id]}")
         control_watering(i['zone_id'], False)
 
@@ -125,9 +129,9 @@ def apply_config(new_config: dict = None):
     for schedule_data in new_config.get('schedules', []):
         normalized_config['schedules'].append({
             "zone_id": int(schedule_data['zone_id']),
-            "start_time": schedule_data['start_time'],
-            "duration_ms": int(schedule_data['duration_ms']),
-            "enabled": schedule_data['enabled'],
+            "start_sec": int(schedule_data['start_sec']),
+            "duration_sec": int(schedule_data['duration_sec']),
+            "enabled": bool(schedule_data['enabled']),
             "expiry": int(schedule_data.get('expiry', 0)),
         })
     bo = new_config.get('options', {})
