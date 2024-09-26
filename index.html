@@ -81,7 +81,7 @@
                 const data = await response.json();
 
                 // Update time
-                const date = new Date(data.time_ms);
+                const date = new Date(data.timestamp_ms);
                 document.getElementById('current-time').textContent = date.toLocaleString();
 
                 // Update soil moisture

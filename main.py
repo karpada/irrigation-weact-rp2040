@@ -5,6 +5,17 @@ import ujson
 import ntptime
 import uasyncio as asyncio
 import urequests as requests
+import gc
+
+# Global variables
+micropython_to_timestamp: int = 3155673600 - 2208988800  # 1970-2000
+micropython_to_localtime: int = None
+soil_sensor: ADC = None
+wlan: network.WLAN = network.WLAN(network.STA_IF)
+irrigation_tasks: list[asyncio.Task] = []
+config: dict = None
+valveStatus: int = 0
+# id: str = ':'.join([f"{b:02X}" for b in wlan.config('mac')[3:]]) FIXME: memory allocation failed, no idea why
 
 # Persistent storage functions
 def save_data(filename: str, data: dict) -> None:
@@ -17,17 +28,8 @@ def load_data(filename: str) -> dict:
         with open(filename, 'r') as f:
             return ujson.load(f)
     except:
-        return {"zones": [], "schedules": [], "options": {}}
-config: dict = load_data('config.json')
+        return None
 
-local_time_lag: int = 3155673600 - 2208988800  # 1970-2000
-
-# Pins
-soil_sensor: ADC = None
-
-
-# WiFi connection
-wlan: network.WLAN = network.WLAN(network.STA_IF)
 async def connect_wifi() -> None:
     wlan.active(True)
     wlan.connect(config['options'].get('wifi_ssid', 'Pita'), config['options'].get('wifi_password', '***REMOVED***'))
@@ -42,32 +44,36 @@ async def connect_wifi() -> None:
         print('network connection failed, retrying in 90 seconds')
         await asyncio.sleep(90)
     else:
-        print('connected')
-        status: tuple = wlan.ifconfig()
-        print('ip = ' + status[0])
+        print(f" connected, ip = {wlan.ifconfig()[0]}")
 
 async def keep_wifi_connected():
     while True:
         while wlan.isconnected():
             await asyncio.sleep(5)
-        print(f'@{time.time()} No wifi connection, attempting to reconnect.')
+        print(f'@{time.time()} No wifi connection, attempting to reconnect...')
         await connect_wifi()
 
 
-# Sync time with NTP
+# Time functions
+def get_weekday() -> int:
+    # weekday is 0-6 for Mon-Sun
+    return ((time.time()+micropython_to_localtime) // 86400 + 3) % 7
+
 async def sync_ntp() -> bool:
     try:
         ntptime.settime()
+        tt = time.gmtime()
+        print(f'@{time.time()} Time synced with NTP, UTC timestamp={time.time()+micropython_to_timestamp}( {tt[0]}{tt[1]:02}{tt[2]:02}T{tt[3]:02}{tt[4]:02}{tt[5]:02}Z ). Local timestamp(GMT{config['options']['settings']['timezone_offset']:+})={time.time()+micropython_to_localtime}')
         return True
     except:
-        print("Error syncing time")
+        print(f'@{time.time()} Error syncing time, current UTC timestamp={time.time()+micropython_to_timestamp}')
         return False
 
 async def periodic_ntp_sync():
     while True:
-        await asyncio.sleep(24 * 60 * 60)  # 24 hours
         while not await sync_ntp():
-            await asyncio.sleep(30 * 60) # 30 minutes
+            await asyncio.sleep(10) # 10 seconds
+        await asyncio.sleep(24 * 60 * 60)  # 24 hours
 
 # Watering control functions
 def control_watering(zone_id: int, start: bool) -> None:
@@ -87,9 +93,9 @@ async def schedule_irrigation(irrigation_id: int):
     print(f"@{time.time()} config['schedules'][{irrigation_id}] New task => {config['schedules'][irrigation_id]}")
     while True:
         i = config["schedules"][irrigation_id]
-        if i['expiry'] and time.time() > i['expiry']-local_time_lag:
-            print(f"Schedule {irrigation_id} has expired")
-            break
+        # if i['expiry'] and time.time() > i['expiry']-local_time_lag:
+        #     print(f"Schedule {irrigation_id} has expired")
+        #     break
         hour, minute = map(int, i['start_time'].split(':'))
         now = time.gmtime()
         seconds_until = ((hour - now[3]) * 3600 + (minute - now[4]) * 60 - now[5]) % 86400
@@ -102,15 +108,61 @@ async def schedule_irrigation(irrigation_id: int):
         print(f"@{time.time()} config['schedules'][{irrigation_id}] Stopping irrigation of zone[{i['zone_id']}] seconds => {config['schedules'][irrigation_id]}")
         control_watering(i['zone_id'], False)
 
-irrigation_tasks: list[asyncio.Task] = []
+# Configuration functions
 def apply_config(new_config: dict = None):
     global config
     global soil_sensor
+    global micropython_to_localtime
+    global valveStatus
 
-    if not new_config:
-        raise ValueError("cowardly refusing to apply empty config")
+    normalized_config = {"zones": [], "schedules": [], "options": {}}
+    for zone_data in new_config.get('zones', []):
+        normalized_config['zones'].append({
+            "name": str(zone_data['name']),
+            "on_pin": int(zone_data['on_pin']),
+            "off_pin": int(zone_data['off_pin']),
+        })
+    for schedule_data in new_config.get('schedules', []):
+        normalized_config['schedules'].append({
+            "zone_id": int(schedule_data['zone_id']),
+            "start_time": schedule_data['start_time'],
+            "duration_ms": int(schedule_data['duration_ms']),
+            "enabled": schedule_data['enabled'],
+            "expiry": int(schedule_data.get('expiry', 0)),
+        })
+    bo = new_config.get('options', {})
+    for key in ['wifi', 'soil_moisture', 'monitoring', 'settings']:
+        bo.setdefault(key, {})
+    normalized_config['options'] = {
+        "wifi": {
+            "ssid": str(bo['wifi'].get('ssid', 'Pita')),
+            "password": str(bo['wifi'].get('password', '***REMOVED***')),
+        },
+        "soil_moisture": {
+            "pin_id": int(bo['soil_moisture'].get('pin_id', -1)),
+            "threshold_low": int(bo['soil_moisture'].get('threshold_low', -1)),
+            "threshold_high": int(bo['soil_moisture'].get('threshold_high', -1)),
+        },
+        "monitoring": {
+            "thingsspeak_apikey": str(bo['monitoring'] .get('thingsspeak_apikey', 'RDO96UXJ98Y8OZW9')),
+        },
+        "settings": {
+            "pause_hours": round((bo['settings'].get('pause_hours', 0)), 1),
+            "timezone_offset": float(bo['settings'].get('timezone_offset', -7)),
+        },
+    }
 
-    config = new_config
+    # if config.get('zones', []) != normalized_config['zones']:
+    #     print("Zones have changed, stopping all irrigation tasks...")
+    #     #  TODO: stop all irrigation tasks, nothing to do if there are no zones
+
+    there_were_no_zones = not config or not config.get('zones')
+    config = normalized_config
+    # assume all zones are on at start, so we can turn them off
+    if there_were_no_zones:
+        valveStatus = (1<<len(config['zones']))-1
+
+    micropython_to_localtime = micropython_to_timestamp + round(config['options']['settings']['timezone_offset'] * 3600)
 
     soil_moisture_pin_id = config['options']['soil_moisture'].get('pin_id')
     soil_sensor = ADC(soil_moisture_pin_id) if soil_moisture_pin_id is not None and soil_moisture_pin_id >= 0 else None
@@ -120,7 +172,6 @@ def apply_config(new_config: dict = None):
     irrigation_tasks.clear()
     for i, schedule in enumerate(config["schedules"]):
         irrigation_tasks.append(asyncio.create_task(schedule_irrigation(i)))
-    save_data('config.json', config)
 
 def read_soil_moisture() -> int:
     return soil_sensor.read() if soil_sensor else None
@@ -173,7 +224,7 @@ async def handle_request(reader, writer):
         headers = await read_headers(reader)
         content_length = int(headers.get('content-length', '0'))
 
-        print(f"@{time.time()} Handling request: method={method} path={path}, query_params={query_params}, (content_length={content_length})")  #     headers={headers}")
+        print(f"@{time.time()} Handling request: method={method:4} path={path:14} query_params={query_params}, (content_length={content_length})")  #     headers={headers}")
 
         body = ujson.loads((await reader.read(content_length)).decode()) if content_length > 0 else None
 
@@ -201,48 +252,16 @@ async def handle_request(reader, writer):
         elif method == 'POST' and path == '/config':
             # restore backup: jq . irrigation-config.json | curl -H "Content-Type: application/json" -X POST --data-binary @- http://192.168.68.ESP/config
             print(f"body = {body}, isinstance(body, dict) = {isinstance(body, dict)}")
-            new_config = {"zones": [], "schedules": [], "options": {}}
-            for zone_data in body['zones']:
-                new_config['zones'].append({
-                    "name": str(zone_data['name']),
-                    "on_pin": int(zone_data['on_pin']),
-                    "off_pin": int(zone_data['off_pin']),
-                })
-            for schedule_data in body['schedules']:
-                new_config['schedules'].append({
-                    "zone_id": int(schedule_data['zone_id']),
-                    "start_time": schedule_data['start_time'],
-                    "duration_ms": int(schedule_data['duration_ms']),
-                    "enabled": schedule_data['enabled'],
-                    "expiry": int(schedule_data.get('expiry', 0)),
-                })
-            bo = body['options']
-            for key in ['wifi', 'soil_moisture', 'monitoring', 'settings']:
-                bo.setdefault(key, {})
-            new_config['options'] = {
-                "wifi": {
-                    "ssid": str(bo['wifi'].get('ssid', 'Pita')),
-                    "password": str(bo['wifi'].get('password', '***REMOVED***')),
-                },
-                "soil_moisture": {
-                    "pin_id": int(bo['soil_moisture'].get('pin_id', -1)),
-                    "threshold_low": int(bo['soil_moisture'].get('threshold_low', -1)),
-                    "threshold_high": int(bo['soil_moisture'].get('threshold_high', -1)),
-                },
-                "monitoring": {
-                    "thingsspeak_apikey": str(bo['monitoring'] .get('thingsspeak_apikey', 'RDO96UXJ98Y8OZW9')),
-                },
-                "settings": {
-                    "pause_hours": round((bo['settings'].get('pause_hours', 0)), 1),
-                },
-            }
-            apply_config(new_config)
-            response = ujson.dumps(new_config)
-
+            apply_config(body)
+            response = ujson.dumps(config)
+            save_data('config.json', config)
         elif method == 'GET' and path == '/status':
             response = ujson.dumps({
-                "time_ms": int(time.time()+local_time_lag) * 1000,
+                "timestamp_ms": int(time.time() + micropython_to_timestamp) * 1000,
+                "local_timestamp": int(time.time() + micropython_to_localtime),
                 "soil_moisture": read_soil_moisture(),
+                "gc.mem_alloc": gc.mem_alloc(),
+                "valveStatus": valveStatus,
             })
 
         else:
@@ -266,26 +285,26 @@ async def handle_request(reader, writer):
     writer.close()
     await writer.wait_closed()
 
-async def send_status():
+async def send_metrics():
     while True:
-        requests.get(f"http://api.thingspeak.com/update?api_key={config['options'].get('thingsspeak_apikey', 'RDO96UXJ98Y8OZW9')}&field1={read_soil_moisture()}").close()
+        if 'thingsspeak_apikey' in config['options']['monitoring']:
+            requests.get(f"http://api.thingspeak.com/update?api_key={config['options']['monitoring']['thingsspeak_apikey']}&field1={read_soil_moisture()}&field2={gc.mem_alloc()}&field3={valveStatus}").close()
         await asyncio.sleep(300)
 
 async def main():
     await connect_wifi()
     if not wlan.isconnected():
         # we can go to wifi setup mode
-        print("WiFi connection failed on startup, starting irrigation scheduler, retry reconnecting in background")
+        print("WiFi connection failed on startup, starting irrigation scheduler, will retry reconnecting in background")
 
     asyncio.create_task(keep_wifi_connected())
     asyncio.create_task(periodic_ntp_sync())
-    asyncio.create_task(send_status())
-
-    apply_config(config)
+    asyncio.create_task(send_metrics())
 
     server = await asyncio.start_server(handle_request, "0.0.0.0", 80)
     print('Server listening on port 80')
     await server.wait_closed()
 
 if __name__ == "__main__":
+    apply_config(load_data('config.json'))
     asyncio.run(main())
