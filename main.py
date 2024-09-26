@@ -111,7 +111,10 @@ def apply_config(new_config: dict = None):
         raise ValueError("cowardly refusing to apply empty config")
 
     config = new_config
-    soil_sensor = ADC(config['options'].get('soil_moisture_pin', 0))
+
+    soil_moisture_pin_id = config['options']['soil_moisture'].get('pin_id')
+    soil_sensor = ADC(soil_moisture_pin_id) if soil_moisture_pin_id is not None and soil_moisture_pin_id >= 0 else None
+
     for task in irrigation_tasks:
         task.cancel()
     irrigation_tasks.clear()
