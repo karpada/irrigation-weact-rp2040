@@ -164,7 +164,7 @@ async def schedule_irrigation():
 
 
 # Configuration functions
-async def apply_config(new_config: dict = None):
+def apply_config(new_config: dict) -> None:
     global config
     global soil_sensor
     global micropython_to_localtime
@@ -199,7 +199,7 @@ async def apply_config(new_config: dict = None):
             "threshold_high": int(bo['soil_moisture'].get('threshold_high', -1)),
         },
         "monitoring": {
-            "thingsspeak_apikey": str(bo['monitoring'] .get('thingsspeak_apikey', 'RDO96UXJ98Y8OZW9')),
+            "thingsspeak_apikey": str(bo['monitoring'].get('thingsspeak_apikey', '')),
         },
         "settings": {
             "pause_hours": round((bo['settings'].get('pause_hours', 0)), 1),
@@ -207,6 +207,8 @@ async def apply_config(new_config: dict = None):
             "relay_pin": int(bo['settings'].get('relay_pin', 14)),
         },
     }
+
+    # print(f"apply_config({new_config})\n    normalized_config={normalized_config}")
 
     # if zones changed, turn off all valves
     if config and config.get('zones', []) != normalized_config['zones']:
@@ -235,9 +237,9 @@ async def serve_file(filename: str, writer) -> None:
                 writer.write(chunk)
                 await writer.drain()
                 await asyncio.sleep(0.005) # makes serving more stable
-        print(f'served html in {time.ticks_ms() - start_time}ms')
+        print(f'served {time.ticks_ms() - start_time}ms')
     except Exception as e:
-        print(f"Error serving file [{filename}]: {e}")
+        print(f"Error serving [{filename}]: {e}")
 
 async def read_headers(reader) -> dict:
     headers = {}
@@ -254,7 +256,7 @@ def get_status_message(status_code):
         200: "OK",
         400: "Bad Request",
         404: "Not Found",
-        500: "Internal Server Error"
+        500: "Server Error"
     }
     return status_messages.get(status_code, "Unknown")
 
@@ -343,7 +345,7 @@ async def send_metrics():
 async def main():
     global valve_status
 
-    await apply_config(load_data('config.json') or {})
+    apply_config(load_data('config.json') or {})
     # force all valves off
     valve_status = (1<<len(config['zones']))-1
     await apply_valves(0)
