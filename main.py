@@ -168,7 +168,6 @@ def apply_config(new_config: dict) -> None:
     global config
     global soil_sensor
     global micropython_to_localtime
-    global valve_status
 
     normalized_config = {"zones": [], "schedules": [], "options": {}}
     for zone_data in new_config.get('zones', []):
@@ -273,7 +272,7 @@ async def handle_request(reader, writer):
         headers = await read_headers(reader)
         content_length = int(headers.get('content-length', '0'))
 
-        print(f"@{time.time()} Handling request: method={method:4} path={path:14} query_params={query_params}, (content_length={content_length})")  #     headers={headers}")
+        print(f"@{time.time()} Request: {method:4} {path:14} query_params={query_params}, (content_length={content_length})")  #     headers={headers}")
 
         body = ujson.loads((await reader.read(content_length)).decode()) if content_length > 0 else None
 
@@ -311,7 +310,7 @@ async def handle_request(reader, writer):
                 # "local_time": f"{tt[0]}-{tt[1]:02}-{tt[2]:02}T{tt[3]:02}:{tt[4]:02}:{tt[5]:02}{config['options']['settings']['timezone_offset']:+}",
                 "soil_moisture": read_soil_moisture(),
                 "gc.mem_alloc": gc.mem_alloc(),
-                "valveStatus": valve_status,
+                "valve_status": f"{valve_status:08b}",
             })
 
         else:
@@ -339,7 +338,7 @@ async def send_metrics():
     while True:
         # TODO: add micropython.mem_info()
         if 'thingsspeak_apikey' in config['options']['monitoring']:
-            requests.get(f"http://api.thingspeak.com/update?api_key={config['options']['monitoring']['thingsspeak_apikey']}&field1={read_soil_moisture()}&field2={gc.mem_alloc()}&field3={valve_status}").close()
+            requests.get(f"http://api.thingspeak.com/update?api_key={config['options']['monitoring']['thingsspeak_apikey']}&field1={read_soil_moisture()}&field2={gc.mem_alloc()}&field3={valve_status:08b}").close()
         await asyncio.sleep(300)
 
 async def main():
