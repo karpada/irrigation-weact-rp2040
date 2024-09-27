@@ -153,8 +153,9 @@ async def schedule_irrigation():
         await apply_valves(valve_desired)
         await asyncio.sleep(2)
 
+
 # Configuration functions
-def apply_config(new_config: dict = None):
+async def apply_config(new_config: dict = None):
     global config
     global soil_sensor
     global micropython_to_localtime
@@ -198,15 +199,11 @@ def apply_config(new_config: dict = None):
         },
     }
 
-    # if config.get('zones', []) != normalized_config['zones']:
-    #     print("Zones have changed, stopping all irrigation tasks...")
-    #     #  TODO: stop all irrigation tasks, nothing to do if there are no zones
+    # if zones changed, turn off all valves
+    if config and config.get('zones', []) != normalized_config['zones']:
+        apply_valves(0)
 
-    there_were_no_zones = not config or not config.get('zones')
     config = normalized_config
-    # assume all zones are on at start, so we can turn them off
-    if there_were_no_zones:
-        valve_status = (1<<len(config['zones']))-1
 
     micropython_to_localtime = micropython_to_timestamp + round(config['options']['settings']['timezone_offset'] * 3600)
 
@@ -335,12 +332,18 @@ async def send_metrics():
         await asyncio.sleep(300)
 
 async def main():
+    global valve_status
+
+    await apply_config(load_data('config.json'))
+    # force all valves off
+    valve_status = (1<<len(config['zones']))-1
+    await apply_valves(0)
+
     await connect_wifi()
     await sync_ntp()
     # if not wlan.isconnected():
         # we can go to wifi setup mode
         # print("WiFi connection failed on startup, starting irrigation scheduler, will retry reconnecting in background")
-
     asyncio.create_task(keep_wifi_connected())
     asyncio.create_task(periodic_ntp_sync())
     asyncio.create_task(send_metrics())
@@ -351,5 +354,4 @@ async def main():
     await server.wait_closed()
 
 if __name__ == "__main__":
-    apply_config(load_data('config.json'))
     asyncio.run(main())
