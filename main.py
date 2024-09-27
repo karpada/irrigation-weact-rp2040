@@ -64,7 +64,7 @@ def weekday(timestamp: int) -> int:
 async def sync_ntp() -> bool:
     try:
         ntptime.settime()
-        print(f'@{time.time()} Time synced with NTP, UTC timestamp={time.time()+micropython_to_timestamp} Local timestamp(GMT{config['options']['settings']['timezone_offset']:+})={time.time()+micropython_to_localtime}')
+        print(f'@{time.time()} NTP synced, UTC time={time.time()+micropython_to_timestamp} Local time(GMT{config['options']['settings']['timezone_offset']:+})={time.time()+micropython_to_localtime}')
         return True
     except:
         print(f'@{time.time()} Error syncing time, current UTC timestamp={time.time()+micropython_to_timestamp}')
@@ -83,11 +83,20 @@ def control_watering(zone_id: int, start: bool) -> None:
         return
     zone = config["zones"][zone_id]
     pin_id = zone['on_pin'] if start else zone['off_pin']
-    print(f"Zones[{zone_id}]='{zone['name']}' (off_pin={zone['off_pin']}, on_pin={zone['on_pin']}) will be set {start} using pulse({pin_id})")
+    print(f"Zones[{zone_id}]='{zone['name']}' (off_pin={zone['off_pin']}, on_pin={zone['on_pin']}) will be set {start} using pin_id=({pin_id})")
+    if pin_id < 0:
+        print("NOP pin_id<0")
+        return
+
     pin = Pin(pin_id, Pin.OUT)
-    pin.value(1)
-    time.sleep(0.060)
-    pin.value(0)
+    if zone['on_pin'] == zone['off_pin']:
+        pin.value(1 if start else 0)
+    else:
+        # pulse on two pins
+        pin.value(1)
+        time.sleep(0.060)
+        pin.value(0)
+
     Pin(pin_id, Pin.IN)
 
 
@@ -97,7 +106,7 @@ async def apply_valves(new_status: int) -> None:
     if new_status == valve_status:
         return
 
-    print(f"@{time.time()} apply_valves(new_status={new_status:08b}), current valve_status={valve_status:08b}")
+    print(f"@{time.time()} apply_valves({new_status:08b}), valve_status={valve_status:08b}")
 
     if relay_pin:=config['options']['settings']['relay_pin'] >= 0:
         relay_pin = Pin(relay_pin, Pin.OUT)
@@ -334,7 +343,7 @@ async def send_metrics():
 async def main():
     global valve_status
 
-    await apply_config(load_data('config.json'))
+    await apply_config(load_data('config.json') or {})
     # force all valves off
     valve_status = (1<<len(config['zones']))-1
     await apply_valves(0)
