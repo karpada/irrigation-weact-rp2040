@@ -29,6 +29,7 @@ def load_data(filename: str) -> dict:
     except:
         return None
 
+
 async def connect_wifi() -> None:
     wlan.active(True)
     wlan.connect(config['options'].get('wifi_ssid', 'Pita'), config['options'].get('wifi_password', '***REMOVED***'))
@@ -38,18 +39,18 @@ async def connect_wifi() -> None:
             break
         await asyncio.sleep(1)
         print('.', end='')
+    if wlan.isconnected():
+        print(f"connected, ip = {wlan.ifconfig()[0]}")
+        return
 
-    if not wlan.isconnected():
-        print('network connection failed, retrying in 90 seconds')
-        await asyncio.sleep(90)
-    else:
-        print(f" connected, ip = {wlan.ifconfig()[0]}")
+    print('network connection failed, retrying in 5 seconds')
+    wlan.active(False)
+    await asyncio.sleep(5)
 
 async def keep_wifi_connected():
     while True:
         while wlan.isconnected():
-            await asyncio.sleep(5)
-        print(f'@{time.time()} No wifi connection, attempting to reconnect...')
+            await asyncio.sleep(1)
         await connect_wifi()
 
 
