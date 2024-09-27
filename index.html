@@ -67,19 +67,20 @@
         }
 
         let config = { zones: [], schedules: [] };
+        let status = {};
 
         async function updateStatus() {
             try {
                 const response = await fetch('/status');
-                const status_json = await response.json();
+                status = await response.json();
 
                 // Update time
-                const date = new Date(status_json.local_timestamp * 1000);
+                const date = new Date(status.local_timestamp * 1000);
                 document.getElementById('current-time').textContent = date.toISOString().slice(0, -1);
 
                 // Update soil moisture
                 const element = document.getElementById('status-content');
-                element.innerHTML = Object.entries(status_json).reduce((acc, entry) => {
+                element.innerHTML = Object.entries(status).reduce((acc, entry) => {
                     return acc.concat(`<p>${entry[0]}: ${entry[1]}</p>`);
                 }, '');
             } catch (error) {
@@ -101,7 +102,7 @@
                     </thead>
                     <tbody>
                         ${config.zones.map((zone, index) => `
-                            <tr>
+                            <tr ${(status.valve_status || '0').slice(-index) === '1' ? ' bgcolor="lightgreen"' : ''}>
                                 <td class="border px-4 py-2"><input type="text" value="${zone.name}" onchange="updateZone(${index}, 'name', this.value)"></td>
                                 <td class="border px-4 py-2"><input type="number" value="${zone.on_pin}" onchange="updateZone(${index}, 'on_pin', this.value)"></td>
                                 <td class="border px-4 py-2"><input type="number" value="${zone.off_pin}" onchange="updateZone(${index}, 'off_pin', this.value)"></td>
