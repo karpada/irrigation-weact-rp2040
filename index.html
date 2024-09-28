@@ -76,13 +76,30 @@
 
                 // Update time
                 const date = new Date(status.local_timestamp * 1000);
-                document.getElementById('current-time').textContent = date.toISOString().slice(0, -1);
+                document.getElementById('current-time').textContent = date.toISOString().slice(0, -5);
 
                 // Update soil moisture
                 const element = document.getElementById('status-content');
                 element.innerHTML = Object.entries(status).reduce((acc, entry) => {
                     return acc.concat(`<p>${entry[0]}: ${entry[1]}</p>`);
                 }, '');
+
+                config.zones.forEach((zone, index) => {
+                    const zoneElement = document.getElementById(`zone${index}`);
+                    if (status.valve_status.slice(-1-index)[0] === '1') {
+                        zoneElement.setAttribute('bgcolor', 'lightgreen');
+                    } else {
+                        zoneElement.removeAttribute('bgcolor');
+                    }
+                });
+                config.schedules.forEach((schedule, index) => {
+                    const scheduleElement = document.getElementById(`schedule${index}`);
+                    if (status.schedule_status.slice(-1-index)[0] === '1') {
+                        scheduleElement.setAttribute('bgcolor', 'lightgreen');
+                    } else {
+                        scheduleElement.removeAttribute('bgcolor');
+                    }
+                });
             } catch (error) {
                 console.error('Error fetching status:', error);
             }
@@ -102,7 +119,7 @@
                     </thead>
                     <tbody>
                         ${config.zones.map((zone, index) => `
-                            <tr ${(status.valve_status || '0').slice(-index) === '1' ? ' bgcolor="lightgreen"' : ''}>
+                            <tr id="zone${index}">
                                 <td class="border px-4 py-2"><input type="text" value="${zone.name}" onchange="updateZone(${index}, 'name', this.value)"></td>
                                 <td class="border px-4 py-2"><input type="number" value="${zone.on_pin}" onchange="updateZone(${index}, 'on_pin', this.value)"></td>
                                 <td class="border px-4 py-2"><input type="number" value="${zone.off_pin}" onchange="updateZone(${index}, 'off_pin', this.value)"></td>
@@ -130,7 +147,7 @@
                     </thead>
                     <tbody>
                         ${config.schedules.map((schedule, index) => `
-                            <tr>
+                            <tr id="schedule${index}">
                                 <td class="border px-4 py-2">
                                     <select onchange="updateSchedule(${index}, 'zone_id', Number(this.value))">
                                         ${config.zones.map((zone, zoneIndex) => `
@@ -254,12 +271,8 @@
         }
 
         function init() {
-            updateStatus();
-            setInterval(updateStatus, 11000);
-
             setupCollapsible('zones', 'zones-content');
             setupCollapsible('options', 'options-form');
-
             fetch('/config')
                 .then(response => response.json())
                 .then(data => {
@@ -268,6 +281,8 @@
                     renderSchedules();
                     renderOptions();
                 });
+            updateStatus();
+            setInterval(updateStatus, 11000);
         }
 
         init();

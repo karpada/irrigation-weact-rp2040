@@ -14,6 +14,7 @@ soil_sensor: ADC = None
 wlan: network.WLAN = network.WLAN(network.STA_IF)
 config: dict = None
 valve_status: int = 0
+schedule_status: int = 0
 # id: str = ':'.join([f"{b:02X}" for b in wlan.config('mac')[3:]]) FIXME: memory allocation failed, no idea why
 
 # Persistent storage functions
@@ -128,10 +129,13 @@ async def apply_valves(new_status: int) -> None:
 
 
 async def schedule_irrigation():
+    global schedule_status
+
     await asyncio.sleep(5)
     while True:
         valve_desired = 0
-        for s in config["schedules"]:
+        new_schedule_status = 0
+        for i, s in enumerate(config["schedules"]):
             # print(f"@{time.time()} checking schedule={s}")
 
             if not s['enabled']:
@@ -154,6 +158,7 @@ async def schedule_irrigation():
 
             # we should irrigate, set the valve status
             valve_desired |= (1 << s['zone_id'])
+            new_schedule_status |= (1 << i)
             # print(f"@{time.time()} valve_desired={valve_desired:08b} for schedule={s}")
 
         # print(f"@{time.time()} valve_desired={valve_desired:08b}")
@@ -161,6 +166,7 @@ async def schedule_irrigation():
             valve_desired |= 1
 
         await apply_valves(valve_desired)
+        schedule_status = new_schedule_status
         await asyncio.sleep(2)
 
 
@@ -312,6 +318,7 @@ async def handle_request(reader, writer):
                 "soil_moisture": read_soil_moisture(),
                 "gc.mem_alloc": gc.mem_alloc(),
                 "valve_status": f"{valve_status:08b}",
+                "schedule_status": f"{schedule_status:08b}",
             })
 
         else:
@@ -339,7 +346,7 @@ async def send_metrics():
     while True:
         # TODO: add micropython.mem_info()
         if 'thingsspeak_apikey' in config['options']['monitoring']:
-            requests.get(f"http://api.thingspeak.com/update?api_key={config['options']['monitoring']['thingsspeak_apikey']}&field1={read_soil_moisture()}&field2={gc.mem_alloc()}&field3={valve_status:08b}").close()
+            requests.get(f"http://api.thingspeak.com/update?api_key={config['options']['monitoring']['thingsspeak_apikey']}&field1={read_soil_moisture()}&field2={gc.mem_alloc()}&field3={valve_status}").close()
         await asyncio.sleep(300)
 
 async def main():
