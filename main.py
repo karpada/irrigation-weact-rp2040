@@ -1,6 +1,7 @@
 import network
 import utime as time
 from machine import Pin, ADC
+import esp32
 import ujson
 import ntptime
 import uasyncio as asyncio
@@ -319,6 +320,7 @@ async def handle_request(reader, writer):
                 "gc.mem_alloc": gc.mem_alloc(),
                 "valve_status": f"{valve_status:08b}",
                 "schedule_status": f"{schedule_status:08b}",
+                "mcu_temperature": esp32.mcu_temperature(),
             })
 
         else:
