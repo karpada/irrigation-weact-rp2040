@@ -59,12 +59,12 @@ async def keep_wifi_connected():
 
 
 # Time functions
-def local_timestamp() -> int:
+def get_local_timestamp() -> int:
     return time.time()+micropython_to_localtime
 
 def weekday(timestamp: int) -> int:
     # weekday is 0-6 for Mon-Sun.
-    return ((timestamp or local_timestamp()) // 86400 + 3) % 7
+    return ((timestamp or get_local_timestamp()) // 86400 + 3) % 7
 
 async def sync_ntp() -> bool:
     try:
@@ -136,11 +136,20 @@ async def apply_valves(new_status: int) -> None:
 async def schedule_irrigation():
     global schedule_status
     global irrigation_factor
+    irrigation_factor_expiration: int = 0
 
     await asyncio.sleep(5)
     while True:
         if heartbeat_pin_id > 0:
             Pin(heartbeat_pin_id, Pin.OUT).on()
+
+        local_timestamp = get_local_timestamp()
+
+        if config['options']['irrigation_factor']['override'] >= 0:
+            irrigation_factor = config['options']['irrigation_factor']['override']
+        elif local_timestamp > irrigation_factor_expiration:
+            irrigation_factor = 1
+
         valve_desired = 0
         new_schedule_status = 0
         for i, s in enumerate(config["schedules"]):
@@ -149,41 +158,38 @@ async def schedule_irrigation():
             if not s['enabled']:
                 continue
 
-            if s['expiry'] and local_timestamp() > s['expiry']:
+            if s['expiry'] and local_timestamp > s['expiry']:
                 continue
 
             # TODO: check week days
-            # weekday_start = weekday(local_timestamp()+sec_till_start) + 6 % 7
+            # weekday_start = weekday(local_timestamp+sec_till_start) + 6 % 7
             # if ~s['day_mask'] & (1 << weekday()):
             #     continue
 
-            sec_till_start = (86400 + s['start_sec'] - local_timestamp() % 86400) % 86400
+            sec_till_start = (86400 + s['start_sec'] - local_timestamp % 86400) % 86400
             duration_sec = round(s['duration_sec'])
             sec_till_end = (sec_till_start + duration_sec) % 86400
             if sec_till_end >= sec_till_start:
                 # we are not inside the schedule
-                if config['options']['irrigation_factor']['reference_schedule_id'] == i and schedule_status & (1 << i):
-                    # reference_schedule_id has ended without reaching wet, reset irrigation_factor
-                    irrigation_factor = 1
                 continue
 
-            if config['options']['irrigation_factor']['reference_schedule_id'] == i:
+            if config['options']['irrigation_factor']['reference_schedule_id'] == i and irrigation_factor_expiration <= local_timestamp + sec_till_end:
                 soil_moisture = read_soil_moisture()
+                # it's the reference_schedule_id and irrigation_factor is about to expire, we might need to adjust the irrigation factor
                 if schedule_status & (1 << i):
                     # reference_schedule_id is active, check if we should stop
                     if soil_moisture >= config['options']['soil_moisture']['threshold_wet']:
-                        irrigation_factor = (local_timestamp() - s['start_sec']) % 86400 / s['duration_sec']
+                        irrigation_factor = (local_timestamp - s['start_sec']) % 86400 / s['duration_sec']
+                        irrigation_factor_expiration = local_timestamp + sec_till_start + duration_sec
                 else:
-                    # reference_schedule_id is not active, check if we should start
-                    if soil_moisture > config['options']['soil_moisture']['threshold_dry']:
+                    # reference_schedule_id is about to start, is it dry enough?
+                    if soil_moisture >= config['options']['soil_moisture']['threshold_dry']:
                         irrigation_factor = 0
+                        irrigation_factor_expiration = local_timestamp + sec_till_start + duration_sec
 
             if s['enable_irrigation_factor']:
-                if config['options']['irrigation_factor']['override'] >= 0:
-                    duration_sec *= config['options']['irrigation_factor']['override']
-                else:
-                    duration_sec *= irrigation_factor
-                # check if we are inside the schedule (updated duration)
+                duration_sec *= irrigation_factor
+                # check if we are still inside the schedule (updated duration)
                 sec_till_end = (sec_till_start + duration_sec) % 86400
                 if sec_till_end >= sec_till_start:
                     continue
@@ -237,7 +243,7 @@ def apply_config(new_config: dict) -> None:
             "password": str(bo['wifi'].get('password', '***REMOVED***')),
         },
         "irrigation_factor": {
-            "override": float(bo['irrigation_factor'].get('override', None)),
+            "override": float(bo['irrigation_factor'].get('override', -1)),
             "reference_schedule_id": int(bo['irrigation_factor'].get('reference_schedule_id', -1)),
             "soil_moisture_dry": int(bo['irrigation_factor'].get('soil_moisture_dry', -1)),
             "soil_moisture_wet": int(bo['irrigation_factor'].get('soil_moisture_wet', -1)),
@@ -361,7 +367,7 @@ async def handle_request(reader, writer):
         elif method == 'GET' and path == '/status':
             # tt = time.gmtime()
             response = ujson.dumps({
-                "local_timestamp": int(time.time() + micropython_to_localtime),
+                "local_timestamp": get_local_timestamp(),
                 "soil_moisture": read_soil_moisture(),
                 "gc.mem_alloc": gc.mem_alloc(),
                 "valve_status": f"{valve_status:08b}",
