@@ -17,6 +17,7 @@ config: dict = None
 valve_status: int = 0
 schedule_status: int = 0
 irrigation_factor: float = 1.0
+heartbeat_pin_id: int = -1
 # id: str = ':'.join([f"{b:02X}" for b in wlan.config('mac')[3:]]) FIXME: memory allocation failed, no idea why
 
 # Persistent storage functions
@@ -138,6 +139,8 @@ async def schedule_irrigation():
 
     await asyncio.sleep(5)
     while True:
+        if heartbeat_pin_id > 0:
+            Pin(heartbeat_pin_id, Pin.OUT).on()
         valve_desired = 0
         new_schedule_status = 0
         for i, s in enumerate(config["schedules"]):
@@ -196,6 +199,8 @@ async def schedule_irrigation():
 
         await apply_valves(valve_desired)
         schedule_status = new_schedule_status
+        if heartbeat_pin_id > 0:
+            Pin(heartbeat_pin_id, Pin.IN)
         await asyncio.sleep(2)
 
 #########################
@@ -203,8 +208,9 @@ async def schedule_irrigation():
 #########################
 def apply_config(new_config: dict) -> None:
     global config
-    global soil_sensor
     global micropython_to_localtime
+    global soil_sensor
+    global heartbeat_pin_id
 
     normalized_config = {"zones": [], "schedules": [], "options": {}}
     for zone_data in new_config.get('zones', []):
@@ -245,6 +251,7 @@ def apply_config(new_config: dict) -> None:
             "timezone_offset": float(bo['settings'].get('timezone_offset', -7)),
             "relay_pin": int(bo['settings'].get('relay_pin', 14)),
             "soil_moisture_pin_id": int(bo['settings'].get('soil_moisture_pin_id', -1)),
+            "heartbeat_pin_id": int(bo['settings'].get('heartbeat_pin_id', 15)),
         },
     }
 
@@ -263,6 +270,7 @@ def apply_config(new_config: dict) -> None:
 
     soil_moisture_pin_id = config['options']['settings'].get('soil_moisture_pin_id')
     soil_sensor = ADC(soil_moisture_pin_id) if soil_moisture_pin_id is not None and soil_moisture_pin_id >= 0 else None
+    heartbeat_pin_id = config['options']['settings']['heartbeat_pin_id']
 
 
 def read_soil_moisture() -> int:
