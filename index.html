@@ -146,7 +146,8 @@
                             <th>Zone</th>
                             <th>Start Time</th>
                             <th>Duration (minutes)</th>
-                            <th class="narrow" style="narrows">Enabled</th>
+                            <th class="narrow">Enabled</th>
+                            <th class="narrow">Apply Factor</th>
                             <th>Expiry</th>
                             <th>Action</th>
                         </tr>
@@ -164,6 +165,7 @@
                                 <td class="border px-4 py-2"><input type="time" value="${String(Math.floor(schedule.start_sec / 3600)).padStart(2, "0")}:${String(Math.floor(schedule.start_sec/60) % 60).padStart(2, "0")}" onchange="updateSchedule(${index}, 'start_sec', this.value)"></td>
                                 <td class="border px-4 py-2 narrow"><input class="narrow" type="number" value="${Math.round(schedule.duration_sec/6)/10}" onchange="updateSchedule(${index}, 'duration_sec', this.value*60)"></td>
                                 <td class="border px-4 py-2 narrow"><input type="checkbox" ${schedule.enabled ? 'checked' : ''} onchange="updateSchedule(${index}, 'enabled', this.checked)" class="w-4 h-4"></td>
+                                <td class="border px-4 py-2 narrow"><input type="checkbox" ${schedule.enable_irrigation_factor ? 'checked' : ''} onchange="updateSchedule(${index}, 'enable_irrigation_factor', this.checked)" class="w-4 h-4"></td>
                                 <td class="border px-4 py-2"><input type="datetime-local" value="${schedule.expiry ? new Date(schedule.expiry * 1000).toISOString().slice(0, 16) : ""}" onchange="updateSchedule(${index}, 'expiry', this.value ? new Date(this.value).getTime() / 1000) : 0"></td>
                                 <td class="border px-4 py-2"><button onclick="removeSchedule(${index})" class="bg-red-500 text-white px-2 py-1 rounded">Remove</button></td>
                             </tr>
@@ -247,6 +249,7 @@
                 start_sec: "07:00",
                 duration_sec: 600,
                 enabled: true,
+                enable_irrigation_factor: true,
                 expiry: 0,
             });
             renderSchedules();
