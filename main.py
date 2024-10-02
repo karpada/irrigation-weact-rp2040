@@ -387,7 +387,7 @@ async def send_metrics():
     while True:
         # TODO: add micropython.mem_info()
         if 'thingsspeak_apikey' in config['options']['monitoring']:
-            requests.get(f"http://api.thingspeak.com/update?api_key={config['options']['monitoring']['thingsspeak_apikey']}&field1={read_soil_moisture()}&field2={gc.mem_alloc()}&field3={valve_status}&field4={irrigation_factor}").close()
+            requests.get(f"http://api.thingspeak.com/update?api_key={config['options']['monitoring']['thingsspeak_apikey']}&field1={read_soil_moisture()}&field2={gc.mem_alloc()}&field3={valve_status}&field4={irrigation_factor}&field5={esp32.mcu_temperature()}").close()
         await asyncio.sleep(config['options']['monitoring']['send_interval_sec'])
 
 async def main():
