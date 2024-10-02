@@ -173,17 +173,17 @@ async def schedule_irrigation():
                 # we are not inside the schedule
                 continue
 
-            if config['options']['irrigation_factor']['reference_schedule_id'] == i and irrigation_factor_expiration <= local_timestamp + sec_till_end:
+            if soil_sensor and config['options']['irrigation_factor']['reference_schedule_id'] == i and irrigation_factor_expiration <= local_timestamp + sec_till_end:
                 soil_moisture = read_soil_moisture()
                 # it's the reference_schedule_id and irrigation_factor is about to expire, we might need to adjust the irrigation factor
                 if schedule_status & (1 << i):
                     # reference_schedule_id is active, check if we should stop
-                    if soil_moisture >= config['options']['soil_moisture']['threshold_wet']:
+                    if soil_moisture >= config['options']['irrigation_factor']['soil_moisture_wet']:
                         irrigation_factor = (local_timestamp - s['start_sec']) % 86400 / s['duration_sec']
                         irrigation_factor_expiration = local_timestamp + sec_till_start + duration_sec
                 else:
                     # reference_schedule_id is about to start, is it dry enough?
-                    if soil_moisture >= config['options']['soil_moisture']['threshold_dry']:
+                    if soil_moisture >= config['options']['irrigation_factor']['soil_moisture_dry']:
                         irrigation_factor = 0
                         irrigation_factor_expiration = local_timestamp + sec_till_start + duration_sec
 
