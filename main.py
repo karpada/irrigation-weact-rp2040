@@ -173,8 +173,8 @@ async def schedule_irrigation():
                 # we are not inside the schedule
                 continue
 
-            if soil_sensor and config['options']['irrigation_factor']['reference_schedule_id'] == i and irrigation_factor_expiration <= local_timestamp + sec_till_end:
-                soil_moisture = read_soil_moisture()
+            soil_moisture = read_soil_moisture_milli()
+            if None != soil_sensor and config['options']['irrigation_factor']['reference_schedule_id'] == i and irrigation_factor_expiration <= local_timestamp + sec_till_end:
                 # it's the reference_schedule_id and irrigation_factor is about to expire, we might need to adjust the irrigation factor
                 if schedule_status & (1 << i):
                     # reference_schedule_id is active, check if we should stop
@@ -245,18 +245,22 @@ def apply_config(new_config: dict) -> None:
         "irrigation_factor": {
             "override": float(bo['irrigation_factor'].get('override', -1)),
             "reference_schedule_id": int(bo['irrigation_factor'].get('reference_schedule_id', -1)),
-            "soil_moisture_dry": int(bo['irrigation_factor'].get('soil_moisture_dry', -1)),
-            "soil_moisture_wet": int(bo['irrigation_factor'].get('soil_moisture_wet', -1)),
+            "soil_moisture_dry": int(bo['irrigation_factor'].get('soil_moisture_dry', 300)),
+            "soil_moisture_wet": int(bo['irrigation_factor'].get('soil_moisture_wet', 700)),
         },
         "monitoring": {
             "thingsspeak_apikey": str(bo['monitoring'].get('thingsspeak_apikey', '')),
             "send_interval_sec": int(bo['monitoring'].get('send_interval_sec', 300)),
         },
+        "soil_moisture_sensor": {
+            "adc_pin_id": int(bo['settings'].get('adc_pin_id', 12)),
+            "power_pin_id": int(bo['settings'].get('adc_pin_id', 13)),
+            "high_is_dry": bool(bo['settings'].get('high_is_dry', True)),
+        },
         "settings": {
             "pause_hours": round((bo['settings'].get('pause_hours', 0)), 1),
             "timezone_offset": float(bo['settings'].get('timezone_offset', -7)),
             "relay_pin": int(bo['settings'].get('relay_pin', 14)),
-            "soil_moisture_pin_id": int(bo['settings'].get('soil_moisture_pin_id', -1)),
             "heartbeat_pin_id": int(bo['settings'].get('heartbeat_pin_id', 15)),
         },
     }
@@ -274,15 +278,27 @@ def apply_config(new_config: dict) -> None:
 
     micropython_to_localtime = micropython_to_timestamp + round(config['options']['settings']['timezone_offset'] * 3600)
 
-    soil_moisture_pin_id = config['options']['settings'].get('soil_moisture_pin_id')
-    soil_sensor = ADC(soil_moisture_pin_id) if soil_moisture_pin_id is not None and soil_moisture_pin_id >= 0 else None
+    soil_moisture_pin_id = config['options']['soil_moisture_sensor']['adc_pin_id']
+    soil_sensor = ADC(soil_moisture_pin_id, atten=ADC.ATTN_11DB) if soil_moisture_pin_id >= 0 else None
+
     heartbeat_pin_id = config['options']['settings']['heartbeat_pin_id']
 
+def read_soil_moisture_milli() -> int:
+    if None  == soil_sensor:
+        return None
+    c = config['options']['soil_moisture_sensor']
+    if c['power_pin_id'] >= 0:
+        Pin(c['power_pin_id'], Pin.OUT).value(1)
+    # https://docs.micropython.org/en/latest/esp32/quickref.html#adc-analog-to-digital-conversion
+    time.sleep(0.010)
+    milli_moist = int(soil_sensor.read() // 8.191)
+    if c['power_pin_id'] >= 0:
+        Pin(c['power_pin_id'], Pin.IN)
+    return 1000-milli_moist if c['high_is_dry'] else milli_moist
 
-def read_soil_moisture() -> int:
-    return soil_sensor.read() if soil_sensor else None
-
+#############
 # HTTP server
+#############
 async def serve_file(filename: str, writer) -> None:
     try:
         start_time = time.ticks_ms()
@@ -298,7 +314,7 @@ async def serve_file(filename: str, writer) -> None:
     except Exception as e:
         print(f"Error serving [{filename}]: {e}")
 
-async def read_headers(reader) -> dict:
+async def read_http_headers(reader) -> dict:
     headers = {}
     while True:
         line = await reader.readline()
@@ -330,7 +346,7 @@ async def handle_request(reader, writer):
         path, query_params = path.split('?') if '?' in path else (path, None)
         query_params = dict([param.split('=') for param in query_params.split('&')]) if query_params else {}
 
-        headers = await read_headers(reader)
+        headers = await read_http_headers(reader)
         content_length = int(headers.get('content-length', '0'))
 
         print(f"@{time.time()} Request: {method:4} {path:14} query_params={query_params}, (content_length={content_length})")  #     headers={headers}")
@@ -368,7 +384,7 @@ async def handle_request(reader, writer):
             # tt = time.gmtime()
             response = ujson.dumps({
                 "local_timestamp": get_local_timestamp(),
-                "soil_moisture": read_soil_moisture(),
+                "soil_moisture": read_soil_moisture_milli(),
                 "gc.mem_alloc": gc.mem_alloc(),
                 "valve_status": f"{valve_status:08b}",
                 "schedule_status": f"{schedule_status:08b}",
@@ -401,7 +417,7 @@ async def send_metrics():
     while True:
         # TODO: add micropython.mem_info()
         if 'thingsspeak_apikey' in config['options']['monitoring']:
-            requests.get(f"http://api.thingspeak.com/update?api_key={config['options']['monitoring']['thingsspeak_apikey']}&field1={read_soil_moisture()}&field2={gc.mem_alloc()}&field3={valve_status}&field4={irrigation_factor}&field5={esp32.mcu_temperature()}").close()
+            requests.get(f"http://api.thingspeak.com/update?api_key={config['options']['monitoring']['thingsspeak_apikey']}&field1={read_soil_moisture_milli()}&field2={gc.mem_alloc()}&field3={valve_status}&field4={irrigation_factor}&field5={esp32.mcu_temperature()}").close()
         await asyncio.sleep(config['options']['monitoring']['send_interval_sec'])
 
 async def main():
