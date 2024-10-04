@@ -173,8 +173,8 @@ async def schedule_irrigation():
                 # we are not inside the schedule
                 continue
 
-            soil_moisture = read_soil_moisture_milli()
             if None != soil_sensor and config['options']['irrigation_factor']['reference_schedule_id'] == i and irrigation_factor_expiration <= local_timestamp + sec_till_end:
+                soil_moisture = read_soil_moisture_milli()
                 # it's the reference_schedule_id and irrigation_factor is about to expire, we might need to adjust the irrigation factor
                 if schedule_status & (1 << i):
                     # reference_schedule_id is active, check if we should stop
