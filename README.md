@@ -1,139 +1,64 @@
-# irrigation-weact-rp2040
+# irrigation-esp32
+Design philosophy:
+1. Easy to source generic components
+1. Cheap - excluding the valves, cost should be under 10$
 
-## Hardware
+# Hardware
 
-### WeAct RP2040
+## Controller
+This project based on [ESP32-S2](https://www.espressif.com/en/products/socs/esp32-s2) + [micropython](https://docs.micropython.org/en/latest/esp32/quickref.html)
 
+### Considerations:
+1. Built-in WiFi
+1. [Lots of GPIOs](https://www.sudo.is/docs/esphome/boards/esp32s2mini/ESP32_S2_mini_pinout.jpg)
+1. Easy to use - [thonny (Python IDE)](https://thonny.org/)
+1. Cheap
 
-### H-Bridge L298N
-https://www.hibit.dev/posts/89/how-to-use-the-l298n-motor-driver-module
+### Previous Iterations:
+1. starting with a simple Digispark solution (arduino based)
+1. followed be [WeAct RP2040](https://github.com/WeActStudio/WeActStudio.RP2040CoreBoard) + micropython - this solution lacked network connectivity
+1. Raspberry Pi Zero W - bit of an overkill, there's no need for a full linux system
+1. [LOLIN D1 mini - ESP8266](https://www.wemos.cc/en/latest/d1/d1_mini.html) + micropython - too little memory (met limit on global strings)
 
-### Bermad S-392T-2W
-https://catalog.bermad.com/BERMAD%20Assets/Irrigation/Solenoids/IR-SOLENOID-S-392T-2W/IR_Accessories-Solenoid-S-392T-2W_Product-Page_English_2-2020_XSB.pdf
+## Valve / Pump
 
-### Optional LOLIN D1 mini
-https://www.wemos.cc/en/latest/d1/d1_mini.html
+### Valves
+1. DC Latching selonoid - Draws power only on state change [Bermad S-392T-2W](https://catalog.bermad.com/BERMAD%20Assets/Irrigation/Solenoids/IR-SOLENOID-S-392T-2W/IR_Accessories-Solenoid-S-392T-2W_Product-Page_English_2-2020_XSB.pdf)
+### Pumps
+1. DC pump - [12V DC pump](https://www.google.com/search?q=12v+dc+pump)
 
-## Software
-### IOT Backend options
-https://blynk.io/
+## Driver
+Depends on the valve/pump used:
+1. [Mechanical relays (Multi relay module)](https://www.google.com/search?q=Mechanical+multi+relay+module) - most versitile, compatible with AC, DC & reverse polarity
+1. Solid state relays  (Multi relay module) - compatible with DC only - no reverse polarity
+1. [H-Bridge L298N](https://www.hibit.dev/posts/89/how-to-use-the-l298n-motor-driver-module) - for closing by reversing polarity
 
-## Video
-https://www.youtube.com/watch?v=gCUyTRL9YRA&ab_channel=TechTrendsShameer
+## Power supply
+Depends on the valve/pump used, conroller may be powered by a USB charger & cable.
 
-## Arduino legacy irrigation app (based on CatWaterDigiSpark)
-```c
-#include <SPI.h>
+## [Soil Moisture Sensor](https://www.google.com/search?q=soil+moisture+sensor) (Optional)
 
-#define VALVE_COUNT 1
-typedef enum {VALVE_CLOSE, VALVE_OPEN} VALVE_OP;
+## Master relay (Optional)
+1. saves power when waiting for next watering cycle
 
-#define LED_PIN LED_BUILTIN
-#define V0_OPEN 2
-#define V0_CLOSE 4
-/*/
-// DIGISPARK
-#define LED_PIN 1
-#define V0_OPEN 3
-#define V0_CLOSE 5
-// */
-unsigned long seconds() {
-  static unsigned long last_millis = -1;
-  static unsigned high_millis = -1;
-  const unsigned long m = millis();
-  if (m < last_millis) {
-    high_millis++;
-  }
-  last_millis = m;
-  return high_millis*4294967UL + m/1000UL;
-}
+# Software
 
-unsigned long ClosingTimes[VALVE_COUNT];
+## IOT Backend options
+1. [Thingspeak](https://thingspeak.com/) - [Video](https://www.youtube.com/watch?v=Ckf3zzCA5os)
+1. [blynk](https://blynk.io/) - [Video](https://www.youtube.com/watch?v=gCUyTRL9YRA)
 
-void setup() {
-  // Open serial communications and wait for port to open:
-  Serial.begin(9600);
-    // initialize digital pin LED_BUILTIN as an output.
-//  while (millis() < 10000 && !Serial) {
-//    ; // wait for serial port to connect. Needed for native USB port only
-//  }
+## References:
+1. 
 
-  for(int i=0; i<VALVE_COUNT; i++) {
-    ClosingTimes[i] = 1;
-  }
+# Installation
+1. update the default wifi credentials in `main.py`
+1. using Thonny, connect to the ESP32
+1. copy main.py & index.html to the ESP32
+1. browse to the ESP32 IP address
 
-  pinMode(LED_PIN, OUTPUT);
-  pinMode(V0_OPEN, OUTPUT);
-  digitalWrite(V0_OPEN, HIGH);
-  pinMode(V0_CLOSE, OUTPUT);
-  digitalWrite(V0_CLOSE, HIGH);
-
-  delay(1000);
-}
-
-// pulse width is for Bermad S-392T-2W
-// spec: http://www.bermad.com/Data/Uploads/IR%20Latch%20Solenoid%20S-392-2W%20Data%20Sheet.pdf
-// https://catalog.bermad.com/BERMAD%20Assets/Irrigation/Solenoids/IR-SOLENOID-S-392T-2W/IR_Accessories-Solenoid-S-392T-2W_Product-Page_English_2-2020_XSB.pdf
-void pulse(int pinNum) {
-  //Serial.println(String("Pulse") + String(pinNum));
-  digitalWrite(pinNum, HIGH);   // turn the LED on (HIGH is the voltage level)
-  delay(60);                       // wait for latching
-  digitalWrite(pinNum, LOW);    // turn the LED off by making the voltage LOW
-  delay(20);                       // let things settle
-}
-
-void valveOp(int valveNum, VALVE_OP op) {
-  Serial.println(String("Valve") + String(valveNum) + String(" op=") + String(op == VALVE_OPEN ? "OPEN" : "CLOSE"));
-  if (valveNum == 0) {
-    pulse(op == VALVE_OPEN ? V0_OPEN : V0_CLOSE);
-//  } else if (valveNum == 1) {
-//    pulse(op == VALVE_OPEN ? V1_OPEN : V1_CLOSE);
-  }
-}
-
-void loop() {
-  static unsigned long lastSecond;
-  static unsigned long s = 0;
-  lastSecond = s;
-  s = seconds();
-
-  if (s == lastSecond) {
-    // nothing to do, same second
-    return;
-  }
-  Serial.println(String("time=") + String(s));
-
-  // first 30sec: power on, test valves 
-  if (s < 30 && s%3 == 0) {
-    for(int i=0; i<VALVE_COUNT; i++) {
-      ClosingTimes[i] = s + 1;
-      valveOp(i, VALVE_OPEN);
-    }
-  }
-
-  // LED on for 1s every 3s
-  //digitalWrite(DIGISPARK_LED_PIN, (s%3 == 0) ? HIGH : LOW);
-  
-  // honor ClosingTimes
-  for(int i=0; i<VALVE_COUNT; i++) {
-    if (lastSecond < ClosingTimes[i] && ClosingTimes[i] <= s) {
-      valveOp(i, VALVE_CLOSE);
-    }
-  }
-
-  // 2 times a day 
-  if(s%43200 == 0) {
-    Serial.println("Watering!");
-    for(int i=0; i<VALVE_COUNT; i++) {
-      ClosingTimes[i] = s + 5;
-      valveOp(i, VALVE_OPEN);
-    }
-  }
-
-  // Heartbeat
-  digitalWrite(LED_PIN, HIGH);   // turn the LED on (HIGH is the voltage level)
-  delay(100);                       // wait for a second
-  digitalWrite(LED_PIN, LOW);    // turn the LED off by making the voltage LOW
-//  if(Serial) Serial.println(dataString);
-}
-```
+# TODO
+1. When button is pressed, go to AP mode, allowing for wifi configuration
+1. Implement pause_hours
+1. manual watering
+1. UI config restore
+1. 
