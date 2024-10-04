@@ -1,6 +1,6 @@
 import network
 import utime as time
-from machine import Pin, ADC
+from machine import Pin, ADC, PWM, reset
 import esp32
 import ujson
 import ntptime
@@ -17,7 +17,8 @@ config: dict = None
 valve_status: int = 0
 schedule_status: int = 0
 irrigation_factor: float = 1.0
-heartbeat_pin_id: int = -1
+heartbeat_pin_id: int = 15
+wifi_setup_mode = False
 # id: str = ':'.join([f"{b:02X}" for b in wlan.config('mac')[3:]]) FIXME: memory allocation failed, no idea why
 
 # Persistent storage functions
@@ -344,7 +345,7 @@ async def handle_request(reader, writer):
     try:
         method, path, _ = (await reader.readline()).decode().strip().split(' ')
         path, query_params = path.split('?') if '?' in path else (path, None)
-        query_params = dict([param.split('=') for param in query_params.split('&')]) if query_params else {}
+        query_params = dict([param.replace('+', ' ').split('=') for param in query_params.split('&')]) if query_params else {}
 
         headers = await read_http_headers(reader)
         content_length = int(headers.get('content-length', '0'))
@@ -354,7 +355,7 @@ async def handle_request(reader, writer):
         body = ujson.loads((await reader.read(content_length)).decode()) if content_length > 0 else None
 
         if method == 'GET' and path == '/':
-            filename = 'index.html'
+            filename = 'setup.html' if wifi_setup_mode else 'index.html'
             content_type = 'text/html'
         elif method == 'GET' and path == '/favicon.ico':
             content_type = 'image/svg+xml'
@@ -391,6 +392,14 @@ async def handle_request(reader, writer):
                 "mcu_temperature": esp32.mcu_temperature(),
                 "irrigation_factor": irrigation_factor,
             })
+        elif wifi_setup_mode and method == 'GET' and path == '/setup':
+                print(f"Setup: query_params={query_params}")
+                save_data('config.json', {"options": { "wifi": query_params }})
+                print("Restarting...")
+                await asyncio.sleep(0.1)
+                if heartbeat_pin_id > 0:
+                    Pin(heartbeat_pin_id, Pin.IN)
+                reset()
 
         else:
             response = f"Resource not found: method={method} path={path}"
@@ -420,8 +429,27 @@ async def send_metrics():
             requests.get(f"http://api.thingspeak.com/update?api_key={config['options']['monitoring']['thingsspeak_apikey']}&field1={read_soil_moisture_milli()}&field2={gc.mem_alloc()}&field3={valve_status}&field4={irrigation_factor}&field5={esp32.mcu_temperature()}", timeout=10).close()
         await asyncio.sleep(config['options']['monitoring']['send_interval_sec'])
 
+async def wait_for_wifi_setup(wait_time: int) -> None:
+    global wifi_setup_mode
+
+    for _ in range(round(wait_time*10)):
+        await asyncio.sleep(0.1)
+        if 0 == Pin(0, Pin.IN, Pin.PULL_UP).value():
+            wifi_setup_mode = True
+            break
+    if wifi_setup_mode:
+        if heartbeat_pin_id > 0:
+            PWM(Pin(heartbeat_pin_id), freq=5, duty_u16=32768)
+        ap = network.WLAN(network.AP_IF)
+        ap.active(True)
+        ap.config(essid='irrigation-esp32')
+        server = await asyncio.start_server(handle_request, "0.0.0.0", 80)
+        print('Server listening on port 80')
+        await server.wait_closed()
+
 async def main():
     global valve_status
+    await wait_for_wifi_setup(1)
 
     apply_config(load_data('config.json') or {})
     # force all valves off

@@ -51,13 +51,11 @@ Depends on the valve/pump used, conroller may be powered by a USB charger & cabl
 1. 
 
 # Installation
-1. update the default wifi credentials in `main.py`
-1. using Thonny, connect to the ESP32
-1. copy main.py & index.html to the ESP32
-1. browse to the ESP32 IP address
+1. using Thonny, copy main.py, index.html, setup.html to the ESP32
+1. reset & enter wifi setup mode by pressing the button within 1 second, led will blink rapidly.
+1. connect to the ESP32's wifi `irrigation-esp32` and configure the wifi settings
 
 # TODO
-1. When button is pressed, go to AP mode, allowing for wifi configuration
 1. Implement pause_hours
 1. manual watering
 1. UI config restore
