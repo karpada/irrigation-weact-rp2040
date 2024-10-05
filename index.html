@@ -50,8 +50,9 @@
             </div>
 
             <div class="mt-4 flex space-x-2">
-                <button onclick="saveConfig()" class="bg-green-500 text-white px-6 py-2 rounded text-lg">Apply Configuration</button>
+                <button onclick="postConfig()" class="bg-orange-500 text-white px-6 py-2 rounded text-lg">Apply Configuration</button>
                 <a class="bg-green-500 text-white px-6 py-2 rounded text-lg" href="/config" download="irrigation-config.json"><button>Backup config</button></a>
+                <button onclick="restoreConfig()" class="bg-green-500 text-white px-6 py-2 rounded text-lg"><input type="file" id="restore-selector" accept=".json" style="display:none">Load backup</button>
             </div>
         </div>
 
@@ -260,7 +261,7 @@
             renderSchedules();
         }
 
-        function saveConfig() {
+        function postConfig() {
             fetch('/config', {
                 method: 'POST',
                 headers: {
@@ -276,6 +277,27 @@
             .catch((error) => {
                 console.error('Error:', error);
                 alert('Error saving configuration');
+            });
+        }
+
+        function restoreConfig() {
+            const fileSelector = document.getElementById('restore-selector');
+            fileSelector.click();
+            fileSelector.addEventListener('change', (event) => {
+                const file = event.target.files[0];
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    try {
+                        config = JSON.parse(event.target.result);
+                        renderZones();
+                        renderSchedules();
+                        renderOptions();
+                    } catch (error) {
+                        console.error('Error restoring config:', error);
+                        alert('Error restoring configuration');
+                    }
+                };
+                reader.readAsText(file);
             });
         }
 
