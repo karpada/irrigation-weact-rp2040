@@ -36,8 +36,10 @@ def load_data(filename: str) -> dict:
 
 
 async def connect_wifi() -> None:
+    if not config['options']['wifi']['ssid']:
+        return
     wlan.active(True)
-    wlan.connect(config['options'].get('wifi_ssid', 'Pita'), config['options'].get('wifi_password', '***REMOVED***'))
+    wlan.connect(config['options']['wifi']['ssid'], config['options']['wifi']['password'])
     print(f'@{time.time()} wifi connecting.', end='')
     for i in range(15):
         if wlan.isconnected():
@@ -48,14 +50,13 @@ async def connect_wifi() -> None:
         print(f"connected, ip = {wlan.ifconfig()[0]}")
         return
 
-    print('network connection failed, retrying in 5 seconds')
+    print('network connection failed, retrying in 10 seconds')
     wlan.active(False)
-    await asyncio.sleep(5)
 
 async def keep_wifi_connected():
     while True:
         while wlan.isconnected():
-            await asyncio.sleep(1)
+            await asyncio.sleep(10)
         await connect_wifi()
 
 
@@ -240,8 +241,8 @@ def apply_config(new_config: dict) -> None:
         bo.setdefault(key, {})
     normalized_config['options'] = {
         "wifi": {
-            "ssid": str(bo['wifi'].get('ssid', 'Pita')),
-            "password": str(bo['wifi'].get('password', '***REMOVED***')),
+            "ssid": str(bo['wifi'].get('ssid', '')),
+            "password": str(bo['wifi'].get('password', '')),
         },
         "irrigation_factor": {
             "override": float(bo['irrigation_factor'].get('override', -1)),
