@@ -156,6 +156,8 @@ async def schedule_irrigation():
         new_schedule_status = 0
         for i, s in enumerate(config["schedules"]):
             # print(f"@{time.time()} checking schedule={s}")
+            if not config['options']['settings']['enable_irrigation_schedule']:
+                continue
 
             if not s['enabled']:
                 continue
@@ -167,6 +169,7 @@ async def schedule_irrigation():
             # weekday_start = weekday(local_timestamp+sec_till_start) + 6 % 7
             # if ~s['day_mask'] & (1 << weekday()):
             #     continue
+            # FIXME %86400 assumes the schedule is within a day, this isn't true for non daily schedules
 
             sec_till_start = (86400 + s['start_sec'] - local_timestamp % 86400) % 86400
             duration_sec = round(s['duration_sec'])
@@ -237,7 +240,7 @@ def apply_config(new_config: dict) -> None:
             "expiry": int(schedule_data.get('expiry', 0)),
         })
     bo = new_config.get('options', {})
-    for key in ['wifi', 'irrigation_factor', 'monitoring', 'settings']:
+    for key in ['wifi', 'irrigation_factor', 'monitoring', 'soil_moisture_sensor', 'settings']:
         bo.setdefault(key, {})
     normalized_config['options'] = {
         "wifi": {
@@ -255,12 +258,12 @@ def apply_config(new_config: dict) -> None:
             "send_interval_sec": int(bo['monitoring'].get('send_interval_sec', 300)),
         },
         "soil_moisture_sensor": {
-            "adc_pin_id": int(bo['settings'].get('adc_pin_id', 12)),
-            "power_pin_id": int(bo['settings'].get('adc_pin_id', 13)),
-            "high_is_dry": bool(bo['settings'].get('high_is_dry', True)),
+            "adc_pin_id": int(bo['soil_moisture_sensor'].get('adc_pin_id', 12)),
+            "power_pin_id": int(bo['soil_moisture_sensor'].get('adc_pin_id', 13)),
+            "high_is_dry": bool(bo['soil_moisture_sensor'].get('high_is_dry', True)),
         },
         "settings": {
-            "pause_hours": round((bo['settings'].get('pause_hours', 0)), 1),
+            "enable_irrigation_schedule": bool(bo['settings'].get('enable_irrigation_schedule', True)),
             "timezone_offset": float(bo['settings'].get('timezone_offset', -7)),
             "relay_pin": int(bo['settings'].get('relay_pin', 14)),
             "heartbeat_pin_id": int(bo['settings'].get('heartbeat_pin_id', 15)),
