@@ -196,7 +196,7 @@
             return acc.concat(`
                                 <div>
                                     <label for="${id}" class="block">${entry[0]}</label>
-                                    <input type="${dataType2inputType[typeof(entry[1])]}" id="${id}" name="${entry[0]}" value="${entry[1]}" onchange="${id} = this.value" class="w-full border rounded px-2 py-1">
+                                    <input type="${dataType2inputType[typeof(entry[1])]}" id="${id}"  ${true===entry[1] ? 'checked' : ''} name="${entry[0]}" value="${entry[1]}" onchange="${id} = this.value" class="w-full border rounded px-2 py-1">
                                 </div>
                             `);
             }
