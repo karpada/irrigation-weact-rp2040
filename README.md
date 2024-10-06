@@ -59,4 +59,15 @@ Depends on the valve/pump used, conroller may be powered by a USB charger & cabl
 1. Implement pause_hours
 1. manual watering
 1. UI config restore
-1. 
+1. fix: 
+    ```
+    Task exception wasn't retrieved
+    future: <Task> coro= <generator object 'keep_wifi_connected' at 3f803b20>
+    Traceback (most recent call last):
+    File "asyncio/core.py", line 1, in run_until_complete
+    File "<stdin>", line 60, in keep_wifi_connected
+    File "<stdin>", line 42, in connect_wifi
+    OSError: Wifi Internal Error
+    ```
+    Failing line (line 42, in connect_wifi) = `wlan.connect(config['options']['wifi']['ssid'], config['options']['wifi']['password'])`
+1.

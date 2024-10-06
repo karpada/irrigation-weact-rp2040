@@ -49,7 +49,6 @@ async def connect_wifi() -> None:
     if wlan.isconnected():
         print(f"connected, ip = {wlan.ifconfig()[0]}")
         return
-
     print('network connection failed, retrying in 10 seconds')
     wlan.active(False)
 
@@ -57,6 +56,8 @@ async def keep_wifi_connected():
     while True:
         while wlan.isconnected():
             await asyncio.sleep(10)
+        wlan.active(False)
+        await asyncio.sleep(1)
         await connect_wifi()
 
 
