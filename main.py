@@ -36,29 +36,33 @@ def load_data(filename: str) -> dict:
 
 
 async def connect_wifi() -> None:
-    if not config['options']['wifi']['ssid']:
-        return
-    wlan.active(True)
-    wlan.connect(config['options']['wifi']['ssid'], config['options']['wifi']['password'])
-    print(f'@{time.time()} wifi connecting.', end='')
-    for i in range(15):
+    global irrigation_factor
+
+    try:
+        if not config['options']['wifi']['ssid']:
+            return
+        wlan.active(True)
+        print(f'@{time.time()} wifi connecting.', end='')
+        wlan.connect(config['options']['wifi']['ssid'], config['options']['wifi']['password'])
+        for i in range(15):
+            if wlan.isconnected():
+                break
+            await asyncio.sleep(1)
+            print('.', end='')
         if wlan.isconnected():
-            break
-        await asyncio.sleep(1)
-        print('.', end='')
-    if wlan.isconnected():
-        print(f"connected, ip = {wlan.ifconfig()[0]}")
-        return
-    print('network connection failed, retrying in 10 seconds')
+            print(f"connected, ip = {wlan.ifconfig()[0]}")
+            return
+    except Exception as e:
+        print(f"Error keeping wifi connected: {e}")
     wlan.active(False)
+    print('network connection failed, retrying in 10 seconds')
 
 async def keep_wifi_connected():
+
     while True:
         while wlan.isconnected():
             await asyncio.sleep(10)
-        wlan.active(False)
-        await asyncio.sleep(1)
-        await connect_wifi()
+        await asyncio.sleep(10)
 
 
 # Time functions
@@ -416,11 +420,17 @@ async def handle_request(reader, writer):
     await writer.wait_closed()
 
 async def send_metrics():
+    global irrigation_factor
+
     while True:
-        # TODO: add micropython.mem_info()
-        if 'thingsspeak_apikey' in config['options']['monitoring']:
-            requests.get(f"http://api.thingspeak.com/update?api_key={config['options']['monitoring']['thingsspeak_apikey']}&field1={read_soil_moisture_milli()}&field2={gc.mem_alloc()}&field3={valve_status}&field4={irrigation_factor}&field5={esp32.mcu_temperature()}", timeout=10).close()
-        await asyncio.sleep(config['options']['monitoring']['send_interval_sec'])
+        try:
+            # TODO: add micropython.mem_info()
+            if 'thingsspeak_apikey' in config['options']['monitoring']:
+                requests.get(f"http://api.thingspeak.com/update?api_key={config['options']['monitoring']['thingsspeak_apikey']}&field1={read_soil_moisture_milli()}&field2={gc.mem_alloc()}&field3={valve_status}&field4={irrigation_factor}&field5={esp32.mcu_temperature()}", timeout=10).close()
+        except Exception as e:
+            print(f"Error sending metrics: {e}")
+        finally:
+            await asyncio.sleep(config['options']['monitoring']['send_interval_sec'])
 
 async def wait_for_wifi_setup(wait_time: int) -> None:
     global wifi_setup_mode

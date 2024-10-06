@@ -58,7 +58,6 @@ Depends on the valve/pump used, conroller may be powered by a USB charger & cabl
 # TODO
 1. Implement pause_hours
 1. manual watering
-1. UI config restore
 1. fix: 
     ```
     Task exception wasn't retrieved
