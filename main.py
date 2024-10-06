@@ -260,7 +260,7 @@ def apply_config(new_config: dict) -> None:
         },
         "soil_moisture_sensor": {
             "adc_pin_id": int(bo['soil_moisture_sensor'].get('adc_pin_id', 12)),
-            "power_pin_id": int(bo['soil_moisture_sensor'].get('adc_pin_id', 13)),
+            "power_pin_id": int(bo['soil_moisture_sensor'].get('power_pin_id', 13)),
             "high_is_dry": bool(bo['soil_moisture_sensor'].get('high_is_dry', True)),
         },
         "settings": {
