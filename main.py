@@ -42,6 +42,7 @@ async def connect_wifi() -> None:
         if not config['options']['wifi']['ssid']:
             return
         wlan.active(True)
+        wlan.config(pm=wlan.PM_NONE) # disable power management
         print(f'@{time.time()} wifi connecting.', end='')
         wlan.connect(config['options']['wifi']['ssid'], config['options']['wifi']['password'])
         for i in range(15):
@@ -52,8 +53,13 @@ async def connect_wifi() -> None:
         if wlan.isconnected():
             print(f"connected, ip = {wlan.ifconfig()[0]}")
             return
+        wlan.disconnect()
     except Exception as e:
         print(f"Error keeping wifi connected: {e}")
+        if irrigation_factor > 0:
+            irrigation_factor = -10
+        else:
+            irrigation_factor -=1
     wlan.active(False)
     print('network connection failed, retrying in 10 seconds')
 
@@ -427,9 +433,12 @@ async def send_metrics():
             # TODO: add micropython.mem_info()
             if 'thingsspeak_apikey' in config['options']['monitoring']:
                 requests.get(f"http://api.thingspeak.com/update?api_key={config['options']['monitoring']['thingsspeak_apikey']}&field1={read_soil_moisture_milli()}&field2={gc.mem_alloc()}&field3={valve_status}&field4={irrigation_factor}&field5={esp32.mcu_temperature()}", timeout=10).close()
+            await asyncio.sleep(config['options']['monitoring']['send_interval_sec'])
         except Exception as e:
-            print(f"Error sending metrics: {e}")
-        finally:
+            if irrigation_factor > 0:
+                irrigation_factor = -1_000_000_000
+            else:
+                irrigation_factor -=1000
             await asyncio.sleep(config['options']['monitoring']['send_interval_sec'])
 
 async def wait_for_wifi_setup(wait_time: int) -> None:
