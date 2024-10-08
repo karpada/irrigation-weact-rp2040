@@ -1,6 +1,6 @@
 import network
 import utime as time
-from machine import Pin, ADC, PWM, reset
+from machine import Pin, ADC, PWM, reset, freq
 import esp32
 import ujson
 import ntptime
@@ -452,6 +452,8 @@ async def wait_for_wifi_setup(wait_time: int) -> None:
 
 async def main():
     global valve_status
+
+    freq(80_000_000)
     await wait_for_wifi_setup(1)
 
     apply_config(load_data('config.json') or {})
